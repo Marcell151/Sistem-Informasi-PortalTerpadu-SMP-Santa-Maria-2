@@ -6,7 +6,7 @@
 session_start();
 
 if (!isset($_SESSION['user_id']) || !isset($_SESSION['role'])) { 
-    header("Location: index.php"); 
+    header("Location: login.php"); 
     exit; 
 }
 

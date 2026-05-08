@@ -1,34 +1,13 @@
 <?php
 /**
- * PORTAL TERPADU - Halaman Login SSO
- * Lokasi: htdocs/portal_sekolah/index.php
+ * PORTAL TERPADU - Halaman Utama (Pre-Login)
+ * SMPK Santa Maria 2 Malang
  */
 session_start();
 
-// Jika sudah login, langsung ke Launchpad
-if (isset($_SESSION['user_id'])) {
-    header("Location: launchpad.php");
-    exit;
-}
-
-// Panggil koneksi database dari folder sitapsi
-require_once 'config/database.php';
-
-// Ambil daftar guru untuk Dropdown
-$guru_list = fetchAll("SELECT id_guru, nama_guru FROM tb_guru WHERE status = 'Aktif' ORDER BY nama_guru ASC");
-
-// Tangkap pesan error jika ada
-$error = $_SESSION['error_message'] ?? '';
-unset($_SESSION['error_message']);
-
-// Baca Cookies "Ingat Saya"
-$saved_admin_user = $_COOKIE['saved_admin_user'] ?? '';
-$saved_admin_pass = $_COOKIE['saved_admin_pass'] ?? '';
-$saved_guru_id    = $_COOKIE['saved_guru_id'] ?? '';
-$saved_guru_pin   = $_COOKIE['saved_guru_pin'] ?? '';
-
-// Tentukan Tab Aktif (Jika sebelumnya login sebagai guru, buka tab guru)
-$active_tab = ($saved_guru_id) ? 'guru' : 'admin';
+// Jika sudah login, bisa saja tetap di sini atau redirect ke launchpad
+// Tapi biasanya portal utama tetap bisa diakses
+$is_logged_in = isset($_SESSION['user_id']);
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -38,107 +17,151 @@ $active_tab = ($saved_guru_id) ? 'guru' : 'admin';
     <title>Portal Terpadu - SMPK Santa Maria 2</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <style> body { font-family: 'Plus Jakarta Sans', sans-serif; } </style>
-</head>
-<body class="bg-slate-50 min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden">
-
-    <div class="fixed inset-0 pointer-events-none z-0">
-        <div class="absolute -top-32 -right-32 w-96 h-96 bg-[#000080] rounded-full mix-blend-multiply filter blur-3xl opacity-10"></div>
-        <div class="absolute -bottom-32 -left-32 w-96 h-96 bg-blue-400 rounded-full mix-blend-multiply filter blur-3xl opacity-20"></div>
-    </div>
-
-    <div class="w-full max-w-md relative z-10 mb-6">
-        
-        <div class="text-center mb-8">
-            <div class="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-white shadow-md border border-slate-100 mb-4 p-2">
-                <img src="sitapsi/assets/img/logo.png" alt="Logo Santa Maria" class="w-full h-full object-contain">
-            </div>
-            <h1 class="text-3xl font-extrabold text-slate-800 tracking-tight">Portal Terpadu</h1>
-            <p class="text-sm font-medium text-slate-500 mt-1">SMPK Santa Maria 2 Malang</p>
-        </div>
-
-        <div class="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden">
-            
-            <div class="flex border-b border-slate-200">
-                <button onclick="switchTab('admin')" id="tab-admin" class="flex-1 py-4 text-sm font-extrabold transition-colors <?= $active_tab === 'admin' ? 'text-[#000080] border-b-2 border-[#000080]' : 'text-slate-400 hover:text-slate-600' ?>">Administrator</button>
-                <button onclick="switchTab('guru')" id="tab-guru" class="flex-1 py-4 text-sm font-extrabold transition-colors <?= $active_tab === 'guru' ? 'text-[#000080] border-b-2 border-[#000080]' : 'text-slate-400 hover:text-slate-600' ?>">Guru / Pegawai</button>
-            </div>
-
-            <div class="p-8">
-                <?php if ($error): ?>
-                <div class="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl mb-6 flex items-center shadow-sm">
-                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line></svg>
-                    <p class="text-sm font-bold"><?= htmlspecialchars($error) ?></p>
-                </div>
-                <?php endif; ?>
-
-                <form id="form-admin" action="login_process.php" method="POST" class="space-y-5 <?= $active_tab !== 'admin' ? 'hidden' : '' ?>">
-                    <input type="hidden" name="login_type" value="admin">
-                    <div>
-                        <label class="block text-xs font-bold text-slate-500 mb-2 uppercase">Username Admin</label>
-                        <input type="text" name="username" required value="<?= htmlspecialchars($saved_admin_user) ?>" placeholder="Masukkan Username" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#000080]/20 focus:border-[#000080] text-sm font-semibold transition-all">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-bold text-slate-500 mb-2 uppercase">Password</label>
-                        <input type="password" name="password" required value="<?= htmlspecialchars($saved_admin_pass) ?>" placeholder="••••••••" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#000080]/20 focus:border-[#000080] text-sm font-semibold transition-all">
-                    </div>
-                    <div class="flex items-center space-x-2 pt-1">
-                        <input type="checkbox" name="remember_me" id="rem_admin" class="w-4 h-4 rounded border-slate-300 text-[#000080]" <?= $saved_admin_user ? 'checked' : '' ?>>
-                        <label for="rem_admin" class="text-xs text-slate-500 font-medium cursor-pointer">Ingat data login saya</label>
-                    </div>
-                    <button type="submit" class="w-full py-3.5 mt-2 bg-[#000080] text-white rounded-xl font-bold text-sm shadow-lg hover:bg-blue-900 transition-all flex justify-center items-center">
-                        Masuk sebagai Admin <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"></path></svg>
-                    </button>
-                </form>
-
-                <form id="form-guru" action="login_process.php" method="POST" class="space-y-5 <?= $active_tab !== 'guru' ? 'hidden' : '' ?>">
-                    <input type="hidden" name="login_type" value="guru">
-                    <div>
-                        <label class="block text-xs font-bold text-slate-500 mb-2 uppercase">Pilih Nama Guru</label>
-                        <select name="id_guru" required class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#000080]/20 focus:border-[#000080] text-sm font-semibold transition-all">
-                            <option value="">-- Pilih Nama Anda --</option>
-                            <?php foreach($guru_list as $g): ?>
-                                <option value="<?= $g['id_guru'] ?>" <?= ($saved_guru_id == $g['id_guru']) ? 'selected' : '' ?>>
-                                    <?= htmlspecialchars($g['nama_guru']) ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-bold text-slate-500 mb-2 uppercase">PIN Akses (6 Angka)</label>
-                        <input type="password" name="pin_validasi" required value="<?= htmlspecialchars($saved_guru_pin) ?>" placeholder="••••••" maxlength="6" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#000080]/20 focus:border-[#000080] text-center tracking-[0.5em] text-lg font-bold transition-all">
-                    </div>
-                    <div class="flex items-center space-x-2 pt-1">
-                        <input type="checkbox" name="remember_me" id="rem_guru" class="w-4 h-4 rounded border-slate-300 text-[#000080]" <?= $saved_guru_id ? 'checked' : '' ?>>
-                        <label for="rem_guru" class="text-xs text-slate-500 font-medium cursor-pointer">Ingat nama & PIN saya</label>
-                    </div>
-                    <button type="submit" class="w-full py-3.5 mt-2 bg-[#000080] text-white rounded-xl font-bold text-sm shadow-lg hover:bg-blue-900 transition-all flex justify-center items-center">
-                        Masuk ke Portal <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"></path></svg>
-                    </button>
-                </form>
-
-            </div>
-        </div>
-
-    </div>
-
-    <div class="w-full max-w-md text-center relative z-10">
-        <a href="ortu/login.php" class="inline-flex items-center justify-center px-6 py-2.5 bg-white border border-slate-200 text-slate-600 hover:text-[#000080] hover:border-[#000080] rounded-full text-sm font-bold shadow-sm transition-all group">
-            <svg class="w-4 h-4 mr-2 text-slate-400 group-hover:text-[#000080]" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-            Masuk sebagai Wali Murid
-        </a>
-    </div>
-
-    <script>
-        function switchTab(tab) {
-            document.getElementById('form-admin').classList.add('hidden');
-            document.getElementById('form-guru').classList.add('hidden');
-            document.getElementById('tab-admin').classList.remove('text-[#000080]', 'border-b-2', 'border-[#000080]');
-            document.getElementById('tab-guru').classList.remove('text-[#000080]', 'border-b-2', 'border-[#000080]');
-
-            document.getElementById('form-' + tab).classList.remove('hidden');
-            document.getElementById('tab-' + tab).classList.add('text-[#000080]', 'border-b-2', 'border-[#000080]');
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
         }
-    </script>
+        .hero-gradient {
+            background: radial-gradient(circle at top right, #e0e7ff 0%, #f8fafc 50%);
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen hero-gradient">
+
+    <!-- Background Decoration -->
+    <div class="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+        <div class="absolute -top-24 -right-24 w-96 h-96 bg-blue-100 rounded-full mix-blend-multiply filter blur-3xl opacity-50 animate-pulse"></div>
+        <div class="absolute top-1/2 -left-24 w-72 h-72 bg-indigo-100 rounded-full mix-blend-multiply filter blur-3xl opacity-50 animate-pulse" style="animation-delay: 2s;"></div>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="relative z-10 px-6 py-6 max-w-7xl mx-auto flex justify-between items-center">
+        <div class="flex items-center gap-3">
+            <div class="w-12 h-12 bg-white rounded-2xl shadow-sm p-2 flex items-center justify-center border border-slate-100">
+                <img src="sitapsi/assets/img/logo.png" alt="Logo" class="w-full h-full object-contain">
+            </div>
+            <div>
+                <h1 class="text-xl font-extrabold text-slate-800 tracking-tight leading-none">Portal Terpadu</h1>
+                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">SMPK Santa Maria 2</p>
+            </div>
+        </div>
+        <div>
+            <?php if ($is_logged_in): ?>
+                <a href="launchpad.php" class="px-6 py-2.5 bg-[#000080] text-white rounded-full font-bold text-sm shadow-lg shadow-blue-900/20 hover:bg-blue-900 transition-all">
+                    Kembali ke Launchpad
+                </a>
+            <?php else: ?>
+                <a href="login.php" class="px-6 py-2.5 bg-white text-slate-700 border border-slate-200 rounded-full font-bold text-sm hover:border-[#000080] hover:text-[#000080] transition-all">
+                    Login SSO
+                </a>
+            <?php endif; ?>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <header class="relative z-10 max-w-7xl mx-auto px-6 pt-16 pb-20 text-center">
+        <div class="inline-block px-4 py-1.5 bg-blue-50 border border-blue-100 rounded-full text-[#000080] text-[11px] font-extrabold uppercase tracking-widest mb-6">
+            Pusat Layanan Digital Terintegrasi
+        </div>
+        <h2 class="text-4xl md:text-6xl font-extrabold text-slate-900 mb-6 tracking-tight leading-[1.1]">
+            Satu Pintu untuk Semua <br/>
+            <span class="text-transparent bg-clip-text bg-gradient-to-r from-[#000080] to-blue-500">Layanan Sekolah.</span>
+        </h2>
+        <p class="text-slate-500 text-lg max-w-2xl mx-auto font-medium">
+            Selamat datang di Portal Terpadu SMPK Santa Maria 2 Malang. <br class="hidden md:block"> Silakan pilih layanan sistem informasi yang ingin Anda gunakan.
+        </p>
+    </header>
+
+    <!-- App Grid -->
+    <main class="relative z-10 max-w-6xl mx-auto px-6 pb-24">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            
+            <!-- SITAPSI -->
+            <a href="login.php?modul=sitapsi" class="group relative bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-sm hover:shadow-2xl hover:shadow-blue-900/10 hover:border-[#000080] transition-all duration-500 flex flex-col h-full overflow-hidden">
+                <div class="absolute -top-12 -right-12 w-48 h-48 bg-blue-50 rounded-full group-hover:scale-150 transition-transform duration-700 -z-0"></div>
+                
+                <div class="relative z-10">
+                    <div class="w-16 h-16 bg-[#000080] text-white rounded-3xl flex items-center justify-center mb-8 shadow-xl shadow-blue-900/30 group-hover:rotate-6 transition-transform">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    </div>
+                    <h3 class="text-2xl font-extrabold text-slate-800 mb-3">SITAPSI</h3>
+                    <p class="text-slate-500 font-medium leading-relaxed mb-8">
+                        Sistem Informasi Tata Tertib & Kedisiplinan Siswa. Pantau poin dan prestasi siswa secara real-time.
+                    </p>
+                    <div class="mt-auto flex items-center text-[#000080] font-extrabold text-sm uppercase tracking-wider">
+                        Masuk Sistem <svg class="w-5 h-5 ml-2 group-hover:translate-x-2 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path d="M13 7l5 5-5 5M6 12h12"></path></svg>
+                    </div>
+                </div>
+            </a>
+
+            <!-- SLIMS -->
+            <a href="slims" class="group relative bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-sm hover:shadow-2xl hover:shadow-emerald-900/10 hover:border-emerald-500 transition-all duration-500 flex flex-col h-full overflow-hidden">
+                <div class="absolute -top-12 -right-12 w-48 h-48 bg-emerald-50 rounded-full group-hover:scale-150 transition-transform duration-700 -z-0"></div>
+                
+                <div class="relative z-10">
+                    <div class="w-16 h-16 bg-emerald-500 text-white rounded-3xl flex items-center justify-center mb-8 shadow-xl shadow-emerald-900/30 group-hover:rotate-6 transition-transform">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
+                    </div>
+                    <h3 class="text-2xl font-extrabold text-slate-800 mb-3">Senayan (SLiMS)</h3>
+                    <p class="text-slate-500 font-medium leading-relaxed mb-8">
+                        Perpustakaan Digital Terintegrasi. Telusuri koleksi buku, literasi digital, dan peminjaman secara daring.
+                    </p>
+                    <div class="mt-auto flex items-center text-emerald-600 font-extrabold text-sm uppercase tracking-wider">
+                        Buka Katalog <svg class="w-5 h-5 ml-2 group-hover:translate-x-2 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path d="M13 7l5 5-5 5M6 12h12"></path></svg>
+                    </div>
+                </div>
+            </a>
+
+            <!-- Website Sekolah -->
+            <a href="https://smpksantamaria2malang.sch.id/" target="_blank" class="group relative bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-sm hover:shadow-2xl hover:shadow-amber-900/10 hover:border-amber-500 transition-all duration-500 flex flex-col h-full overflow-hidden">
+                <div class="absolute -top-12 -right-12 w-48 h-48 bg-amber-50 rounded-full group-hover:scale-150 transition-transform duration-700 -z-0"></div>
+                
+                <div class="relative z-10">
+                    <div class="w-16 h-16 bg-amber-500 text-white rounded-3xl flex items-center justify-center mb-8 shadow-xl shadow-amber-900/30 group-hover:rotate-6 transition-transform">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
+                    </div>
+                    <h3 class="text-2xl font-extrabold text-slate-800 mb-3">Website Utama</h3>
+                    <p class="text-slate-500 font-medium leading-relaxed mb-8">
+                        Informasi profil sekolah, berita terbaru, pengumuman, dan galeri kegiatan SMPK Santa Maria 2.
+                    </p>
+                    <div class="mt-auto flex items-center text-amber-600 font-extrabold text-sm uppercase tracking-wider">
+                        Kunjungi Web <svg class="w-5 h-5 ml-2 group-hover:translate-x-2 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path d="M13 7l5 5-5 5M6 12h12"></path></svg>
+                    </div>
+                </div>
+            </a>
+
+        </div>
+
+        <!-- Secondary Info -->
+        <div class="mt-20 grid grid-cols-1 md:grid-cols-2 gap-8 items-center bg-[#000080]/5 rounded-[3rem] p-10 border border-blue-100">
+            <div>
+                <h4 class="text-2xl font-extrabold text-[#000080] mb-4">Butuh Bantuan Akses?</h4>
+                <p class="text-slate-600 font-medium mb-6">
+                    Jika Anda adalah Guru, Karyawan, atau Orang Tua Siswa yang mengalami kendala saat login ke dalam sistem, silakan hubungi bagian Tata Usaha atau Tim IT Sekolah.
+                </p>
+                <div class="flex flex-wrap gap-4">
+                    <div class="flex items-center gap-3 bg-white px-5 py-3 rounded-2xl border border-slate-100 shadow-sm">
+                        <div class="w-8 h-8 bg-blue-100 text-[#000080] rounded-full flex items-center justify-center">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"></path></svg>
+                        </div>
+                        <span class="text-sm font-bold text-slate-700">(0341) 325515</span>
+                    </div>
+                </div>
+            </div>
+            <div class="hidden md:block text-right">
+                <img src="sitapsi/assets/img/logo.png" alt="Decoration" class="inline-block w-48 opacity-10 grayscale brightness-0">
+            </div>
+        </div>
+    </main>
+
+    <footer class="relative z-10 border-t border-slate-200 bg-white py-12 text-center">
+        <p class="text-sm font-bold text-slate-400 uppercase tracking-[0.2em]">
+            &copy; <?= date('Y') ?> SMPK Santa Maria 2 Malang. All Rights Reserved.
+        </p>
+    </footer>
+
 </body>
 </html>

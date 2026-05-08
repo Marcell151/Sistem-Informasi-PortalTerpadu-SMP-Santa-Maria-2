@@ -29,7 +29,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // 2. Session "Jembatan" agar SITAPSI lama tidak error
                 $_SESSION['username'] = $admin['username'];
                 $_SESSION['login_type'] = 'admin';
-                $_SESSION['login_time'] = time(); // Tambahkan ini untuk sinkron dengan session_check
+                $_SESSION['login_time'] = time();
+
+                // Logika penentuan folder & file tujuan (sama seperti di launchpad)
+                $role = $_SESSION['role'];
+                $folder_tujuan = (in_array($role, ['AdminPusat', 'Admin', 'KepalaSekolah'])) ? 'admin' : strtolower($role);
+                $file_tujuan   = (in_array($role, ['AdminPusat', 'Admin', 'KepalaSekolah'])) ? 'dashboard' : 'input_pelanggaran';
 
                 if ($remember_me) {
                     setcookie('saved_admin_user', $username, time() + (86400 * 30), "/");
@@ -39,7 +44,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     setcookie('saved_admin_pass', '', time() - 3600, "/");
                 }
 
-                header("Location: launchpad.php");
+                if (isset($_POST['redirect_to']) && $_POST['redirect_to'] === 'sitapsi') {
+                    header("Location: sitapsi/views/" . $folder_tujuan . "/" . $file_tujuan . ".php");
+                } else {
+                    header("Location: launchpad.php");
+                }
                 exit;
             } else {
                 throw new Exception("Username/Password salah, atau akun Admin sedang dinonaktifkan!");
@@ -72,7 +81,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     setcookie('saved_guru_pin', '', time() - 3600, "/");
                 }
 
-                header("Location: launchpad.php");
+                if (isset($_POST['redirect_to']) && $_POST['redirect_to'] === 'sitapsi') {
+                    // Penentuan folder & file untuk guru
+                    $folder_guru = 'guru';
+                    $file_guru   = 'input_pelanggaran';
+                    header("Location: sitapsi/views/" . $folder_guru . "/" . $file_guru . ".php");
+                } else {
+                    header("Location: launchpad.php");
+                }
                 exit;
             } else {
                 throw new Exception("PIN yang Anda masukkan salah!");
@@ -80,9 +96,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } catch (Exception $e) {
         $_SESSION['error_message'] = $e->getMessage();
-        header("Location: index.php");
+        header("Location: login.php");
         exit;
     }
 }
-header("Location: index.php");
+header("Location: login.php");
 exit;
