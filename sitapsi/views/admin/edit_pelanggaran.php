@@ -208,23 +208,60 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
                     </div>
                 </div>
 
-                <div class="<?= $card_class ?> p-6">
-                    <h4 class="font-extrabold text-slate-800 mb-4 flex items-center text-sm">
-                        <svg class="w-5 h-5 mr-2 text-[#000080]" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
-                        Rekomendasi Sanksi
-                    </h4>
-                    <div id="sanksi-container" class="space-y-3"></div>
-                    <p id="sanksi-empty" class="text-center text-slate-400 py-6 text-sm font-medium border border-dashed border-[#E2E8F0] rounded-xl" style="display: none;">Pilih pelanggaran di atas untuk memunculkan sanksi</p>
-                </div>
+                <?php if ($source === 'report'): ?>
+                    <!-- [BARU] CONTEXT FEEDBACK & BALASAN UNTUK REPORT -->
+                    <div class="<?= $card_class ?> p-6 bg-amber-50/30 border-amber-200">
+                        <h4 class="font-extrabold text-amber-800 mb-4 flex items-center text-sm uppercase tracking-wider">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"></path></svg>
+                            Respon Admin & Keputusan Final
+                        </h4>
+                        
+                        <div class="space-y-4">
+                            <?php 
+                                $fb_ortu = fetchOne("SELECT isi_feedback FROM tb_feedback_ortu WHERE id_transaksi = ? ORDER BY tanggal_kirim DESC LIMIT 1", [$id_transaksi]);
+                            ?>
+                            
+                            <?php if ($fb_ortu || !empty($transaksi['alasan_revisi'])): ?>
+                                <div class="p-4 bg-white border border-amber-100 rounded-xl space-y-3">
+                                    <?php if ($fb_ortu): ?>
+                                        <div class="pb-2 border-b border-slate-50">
+                                            <p class="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-1">Pesan Wali Murid:</p>
+                                            <p class="text-xs text-slate-700 italic font-medium">"<?= htmlspecialchars($fb_ortu['isi_feedback']) ?>"</p>
+                                        </div>
+                                    <?php endif; ?>
+                                    <?php if (!empty($transaksi['alasan_revisi'])): ?>
+                                        <div>
+                                            <p class="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-1">Alasan Wali Kelas:</p>
+                                            <p class="text-xs text-slate-700 italic font-medium">"<?= htmlspecialchars($transaksi['alasan_revisi']) ?>"</p>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
+                            <?php endif; ?>
+
+                            <div>
+                                <label class="block text-xs font-black text-slate-500 mb-2 uppercase tracking-widest">Berikan Balasan/Keputusan Final: *</label>
+                                <textarea name="balasan_admin" rows="3" required class="w-full px-4 py-3 border border-amber-200 rounded-xl focus:outline-none focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 text-sm font-medium text-slate-700 transition-all resize-none bg-white" placeholder="Jelaskan perubahan atau keputusan Anda di sini (Akan tampil di Portal)..."><?= htmlspecialchars($transaksi['balasan_admin'] ?? '') ?></textarea>
+                            </div>
+                        </div>
+                    </div>
+                <?php endif; ?>
 
                 <div class="flex flex-col sm:flex-row gap-4 pt-2">
                     <a href="<?= $back_url ?>" class="<?= $btn_outline ?> flex-1">
-                        Batalkan
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                        Kembali
                     </a>
+                    
+                    <button type="button" onclick="cancelTransactionAudit(<?= $id_transaksi ?>)" class="px-6 py-3 bg-red-50 text-red-600 border border-red-200 text-sm font-bold rounded-lg shadow-sm hover:bg-red-100 transition-all flex-1 flex items-center justify-center">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        Batalkan Transaksi (Audit Trail)
+                    </button>
+
                     <button type="submit" class="<?= $btn_primary ?> flex-1">
                         <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
                         Simpan Perubahan
                     </button>
+                </div>
                 </div>
 
             </form>
@@ -303,6 +340,15 @@ function updateSanksi() {
 document.addEventListener('DOMContentLoaded', function() {
     updateSanksi();
 });
+
+function cancelTransactionAudit(id) {
+    if (confirm('⚠️ PERINGATAN AUDIT TRAIL!\n\nAnda akan MEMBATALKAN transaksi ini.\n• Poin siswa akan dikembalikan secara otomatis\n• Data TIDAK DIHAPUS, tapi ditandai sebagai "Dibatalkan"\n• Sejarah kesalahan input akan tetap tersimpan di sistem\n\nYakin ingin membatalkan transaksi ini?')) {
+        const alasan = prompt("Masukkan alasan pembatalan (Akan tampil di Audit Trail):", "Salah input oleh Admin - Dibatalkan via Edit");
+        if (alasan) {
+            window.location.href = `../../actions/hapus_transaksi.php?id=${id}&redirect=audit&alasan=${encodeURIComponent(alasan)}`;
+        }
+    }
+}
 </script>
 
 </body>

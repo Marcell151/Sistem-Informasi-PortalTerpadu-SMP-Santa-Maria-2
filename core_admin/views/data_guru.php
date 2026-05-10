@@ -17,6 +17,9 @@ $search = $_GET['search'] ?? '';
 // Ambil daftar kelas untuk dropdown
 $kelas_list = fetchAll("SELECT id_kelas, nama_kelas FROM tb_kelas ORDER BY tingkat, nama_kelas");
 
+// Ambil daftar mapel untuk dropdown (REVISI POIN 2)
+$mapel_list = fetchAll("SELECT id_mapel, nama_mapel, grade FROM tb_mapel ORDER BY nama_mapel ASC, grade ASC");
+
 $sql = "
     SELECT 
         g.*,
@@ -153,12 +156,14 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
                                     </span>
                                 </td>
                                 <td class="p-4 text-center">
-                                    <?php if($guru['id_kelas']): ?>
-                                        <span class="px-2.5 py-1 text-[10px] font-bold uppercase rounded-md bg-[#000080]/10 text-[#000080] border border-[#000080]/20">
+                                    <?php if($guru['is_walikelas'] === 'Ya' && $guru['id_kelas']): ?>
+                                        <span class="px-2.5 py-1 text-[10px] font-bold uppercase rounded-md bg-[#000080] text-white border border-[#000080] shadow-sm">
                                             Wali Kelas <?= htmlspecialchars($guru['nama_kelas']) ?>
                                         </span>
                                     <?php else: ?>
-                                        <span class="text-[10px] font-medium text-slate-400">- Bukan Wali -</span>
+                                        <span class="px-2.5 py-1 text-[10px] font-bold uppercase rounded-md bg-slate-100 text-slate-500 border border-slate-200">
+                                            Guru Mata Pelajaran
+                                        </span>
                                     <?php endif; ?>
                                 </td>
                                 <td class="p-4 text-center">
@@ -173,7 +178,9 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
                                         "nama_guru" => $guru["nama_guru"],
                                         "nip" => $guru["nip"],
                                         "pin_validasi" => $guru["pin_validasi"],
+                                        "is_walikelas" => $guru["is_walikelas"],
                                         "id_kelas" => $guru["id_kelas"],
+                                        "mapel" => $guru["mapel"],
                                         "status" => $guru["status"]
                                     ]) ?>)' 
                                     class="p-1.5 bg-white border border-[#E2E8F0] text-slate-600 rounded-md hover:bg-slate-50 hover:text-[#000080] transition-colors shadow-sm" title="Edit Data">
@@ -214,14 +221,42 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
                 <input type="text" name="nip" class="<?= $input_class ?>" placeholder="Boleh dikosongkan jika tidak ada">
             </div>
             <div>
+                <label class="<?= $label_class ?>">Mata Pelajaran yang Diampu (Bisa Pilih Banyak) *</label>
+                <div class="border border-[#E2E8F0] rounded-lg p-3 bg-white max-h-40 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200">
+                    <div class="grid grid-cols-1 gap-2">
+                        <?php foreach($mapel_list as $m): 
+                            $label = $m['nama_mapel'] . " (" . $m['grade'] . ")";
+                        ?>
+                        <label class="flex items-center space-x-2 cursor-pointer group">
+                            <input type="checkbox" name="mapel[]" value="<?= htmlspecialchars($label) ?>" class="w-4 h-4 text-[#000080] rounded border-slate-300 focus:ring-[#000080]/20">
+                            <span class="text-xs font-medium text-slate-600 group-hover:text-slate-900"><?= htmlspecialchars($label) ?></span>
+                        </label>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </div>
+            <div>
                 <label class="<?= $label_class ?>">PIN Akses Portal (6 Digit) *</label>
                 <input type="text" name="pin_validasi" required pattern="\d{6}" maxlength="6" class="<?= $input_class ?>" placeholder="Contoh: 123456" title="Harus 6 digit angka">
                 <p class="text-[10px] text-slate-500 mt-1">Digunakan untuk login ke Portal Guru.</p>
             </div>
             <div>
-                <label class="<?= $label_class ?>">Tugas Wali Kelas (Opsional)</label>
+                <label class="<?= $label_class ?>">Status Jabatan *</label>
+                <div class="flex gap-4 p-3 border border-[#E2E8F0] rounded-lg bg-slate-50/50">
+                    <label class="flex items-center space-x-2 cursor-pointer group">
+                        <input type="radio" name="is_walikelas" value="Tidak" checked onchange="toggleKelasForm('tambah', false)" class="w-4 h-4 text-[#000080] focus:ring-[#000080]/20">
+                        <span class="text-sm font-bold text-slate-600 group-hover:text-slate-800">Guru Mata Pelajaran</span>
+                    </label>
+                    <label class="flex items-center space-x-2 cursor-pointer group">
+                        <input type="radio" name="is_walikelas" value="Ya" onchange="toggleKelasForm('tambah', true)" class="w-4 h-4 text-[#000080] focus:ring-[#000080]/20">
+                        <span class="text-sm font-bold text-slate-600 group-hover:text-slate-800">Wali Kelas</span>
+                    </label>
+                </div>
+            </div>
+            <div id="form-kelas-tambah" class="hidden">
+                <label class="<?= $label_class ?>">Penugasan Kelas *</label>
                 <select name="id_kelas" class="<?= $input_class ?>">
-                    <option value="">-- Bukan Wali Kelas --</option>
+                    <option value="">-- Pilih Kelas --</option>
                     <?php foreach ($kelas_list as $k): ?>
                     <option value="<?= $k['id_kelas'] ?>"><?= htmlspecialchars($k['nama_kelas']) ?></option>
                     <?php endforeach; ?>
@@ -264,9 +299,37 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
                 </div>
             </div>
             <div>
-                <label class="<?= $label_class ?>">Tugas Wali Kelas</label>
+                <label class="<?= $label_class ?>">Mata Pelajaran yang Diampu (Bisa Pilih Banyak) *</label>
+                <div class="border border-[#E2E8F0] rounded-lg p-3 bg-white max-h-40 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200">
+                    <div class="grid grid-cols-1 gap-2">
+                        <?php foreach($mapel_list as $m): 
+                            $label = $m['nama_mapel'] . " (" . $m['grade'] . ")";
+                        ?>
+                        <label class="flex items-center space-x-2 cursor-pointer group">
+                            <input type="checkbox" name="mapel[]" value="<?= htmlspecialchars($label) ?>" class="edit-mapel-checkbox w-4 h-4 text-[#000080] rounded border-slate-300 focus:ring-[#000080]/20">
+                            <span class="text-xs font-medium text-slate-600 group-hover:text-slate-900"><?= htmlspecialchars($label) ?></span>
+                        </label>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </div>
+            <div>
+                <label class="<?= $label_class ?>">Status Jabatan *</label>
+                <div class="flex gap-4 p-3 border border-[#E2E8F0] rounded-lg bg-slate-50/50">
+                    <label class="flex items-center space-x-2 cursor-pointer group">
+                        <input type="radio" name="is_walikelas" id="edit-is-mapel" value="Tidak" onchange="toggleKelasForm('edit', false)" class="w-4 h-4 text-[#000080] focus:ring-[#000080]/20">
+                        <span class="text-sm font-bold text-slate-600 group-hover:text-slate-800">Guru Mata Pelajaran</span>
+                    </label>
+                    <label class="flex items-center space-x-2 cursor-pointer group">
+                        <input type="radio" name="is_walikelas" id="edit-is-walikelas" value="Ya" onchange="toggleKelasForm('edit', true)" class="w-4 h-4 text-[#000080] focus:ring-[#000080]/20">
+                        <span class="text-sm font-bold text-slate-600 group-hover:text-slate-800">Wali Kelas</span>
+                    </label>
+                </div>
+            </div>
+            <div id="form-kelas-edit" class="hidden">
+                <label class="<?= $label_class ?>">Penugasan Kelas *</label>
                 <select name="id_kelas" id="edit-id-kelas" class="<?= $input_class ?>">
-                    <option value="">-- Bukan Wali Kelas --</option>
+                    <option value="">-- Pilih Kelas --</option>
                     <?php foreach ($kelas_list as $k): ?>
                     <option value="<?= $k['id_kelas'] ?>"><?= htmlspecialchars($k['nama_kelas']) ?></option>
                     <?php endforeach; ?>
@@ -292,8 +355,18 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
 </div>
 
 <script>
+function toggleKelasForm(mode, show) {
+    const form = document.getElementById('form-kelas-' + mode);
+    if (show) {
+        form.classList.remove('hidden');
+    } else {
+        form.classList.add('hidden');
+    }
+}
+
 function openModalTambah() {
     document.getElementById('modal-tambah').classList.remove('hidden');
+    toggleKelasForm('tambah', false);
 }
 function closeModalTambah() {
     document.getElementById('modal-tambah').classList.add('hidden');
@@ -304,8 +377,26 @@ function editGuru(data) {
     document.getElementById('edit-nama-guru').value = data.nama_guru;
     document.getElementById('edit-nip').value = data.nip || '';
     document.getElementById('edit-pin').value = data.pin_validasi;
+    
+    if (data.is_walikelas === 'Ya') {
+        document.getElementById('edit-is-walikelas').checked = true;
+        toggleKelasForm('edit', true);
+    } else {
+        document.getElementById('edit-is-mapel').checked = true;
+        toggleKelasForm('edit', false);
+    }
+    
     document.getElementById('edit-id-kelas').value = data.id_kelas || '';
     document.getElementById('edit-status').value = data.status;
+
+    // Reset dan Set Checkbox Mapel
+    const mapelCheckboxes = document.querySelectorAll('.edit-mapel-checkbox');
+    const assignedMapels = data.mapel ? data.mapel.split(', ') : [];
+    
+    mapelCheckboxes.forEach(cb => {
+        cb.checked = assignedMapels.includes(cb.value);
+    });
+
     document.getElementById('modal-edit').classList.remove('hidden');
 }
 function closeModalEdit() {

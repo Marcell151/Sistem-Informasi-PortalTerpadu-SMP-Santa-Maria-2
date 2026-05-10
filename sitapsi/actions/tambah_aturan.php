@@ -12,12 +12,39 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 try {
     $id_kategori = $_POST['id_kategori'];
-    $sub_kategori = trim($_POST['sub_kategori']);
+    $sub_kategori = $_POST['sub_kategori'];
     $nama_pelanggaran = trim($_POST['nama_pelanggaran']);
     $poin_default = (int)$_POST['poin_default'];
-    $sanksi_default = trim($_POST['sanksi_default']);
+    $sanksi_default_array = $_POST['sanksi_default'] ?? [];
     
-    if (empty($id_kategori) || empty($nama_pelanggaran) || $poin_default <= 0) {
+    // Logika 1: Checkbox ke String
+    $sanksi_default = implode(',', $sanksi_default_array);
+
+    // Logika 2: Sub Kategori Baru (Auto Numbering)
+    if ($sub_kategori === 'NEW_SUB') {
+        $nama_sub_baru = trim($_POST['sub_kategori_baru']);
+        
+        // Cari urutan tertinggi saat ini di kategori tersebut
+        $latest = fetchOne("
+            SELECT sub_kategori 
+            FROM tb_jenis_pelanggaran 
+            WHERE id_kategori = :id 
+            AND sub_kategori REGEXP '^[0-9]+'
+            ORDER BY CAST(SUBSTRING_INDEX(sub_kategori, '.', 1) AS UNSIGNED) DESC 
+            LIMIT 1
+        ", ['id' => $id_kategori]);
+        
+        $next_num = 1;
+        if ($latest) {
+            $current_num = (int)explode('.', $latest['sub_kategori'])[0];
+            $next_num = $current_num + 1;
+        }
+        
+        $prefix = str_pad($next_num, 2, '0', STR_PAD_LEFT);
+        $sub_kategori = $prefix . '. ' . $nama_sub_baru;
+    }
+    
+    if (empty($id_kategori) || empty($sub_kategori) || empty($nama_pelanggaran) || $poin_default <= 0) {
         throw new Exception('Data wajib belum lengkap');
     }
     

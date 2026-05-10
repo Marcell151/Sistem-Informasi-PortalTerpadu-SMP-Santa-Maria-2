@@ -29,18 +29,19 @@ $hari_ini = date('Y-m-d');
 
 // QUERY METRIK
 
-// Statistik Umum (Total Siswa, Siswa SP, dan Kandidat Reward / Poin 0)
+// Statistik Umum (Total Siswa Aktif, Siswa SP, dan Kandidat Reward / Poin 0)
 $stats = fetchOne("
     SELECT 
         COUNT(DISTINCT a.no_induk) as total_siswa,
         COUNT(DISTINCT CASE WHEN a.status_sp_terakhir != 'Aman' THEN a.no_induk END) as siswa_sp,
         COUNT(DISTINCT CASE WHEN a.total_poin_umum = 0 THEN a.no_induk END) as kandidat_reward
     FROM tb_anggota_kelas a
-    WHERE a.id_tahun = :id_tahun
+    JOIN tb_siswa s ON a.no_induk = s.no_induk
+    WHERE a.id_tahun = :id_tahun AND s.status_aktif = 'Aktif'
 ", ['id_tahun' => $id_tahun]);
 
 // Total Transaksi (Pelanggaran) Hari Ini
-$q_trans_hari_ini = fetchOne("SELECT COUNT(*) as total FROM tb_pelanggaran_header WHERE id_tahun = ? AND tanggal = ?", [$id_tahun, $hari_ini]);
+$q_trans_hari_ini = fetchOne("SELECT COUNT(*) as total FROM tb_pelanggaran_header WHERE id_tahun = ? AND tanggal = ? AND status_pelanggaran = 'Valid'", [$id_tahun, $hari_ini]);
 $tot_hari_ini = $q_trans_hari_ini['total'] ?? 0;
 
 // STATISTIK SP PER KATEGORI (Silo)
@@ -72,8 +73,8 @@ $top_siswa = fetchAll("
     LIMIT 5
 ", ['id_tahun' => $id_tahun]);
 
-// Analitik 2: Top 5 Kelas dengan Akumulasi Poin Tertinggi
-$top_kelas = fetchAll("
+// Analitik 2: Top 5 Kelas dengan Akumulasi Poin Tertinggi (Hanya yang Aktif)
+$top_kelas_poin = fetchAll("
     SELECT k.nama_kelas, SUM(ak.total_poin_umum) as total_poin_kelas, COUNT(ak.id_anggota) as jml_siswa_melanggar
     FROM tb_anggota_kelas ak
     JOIN tb_kelas k ON ak.id_kelas = k.id_kelas
@@ -83,7 +84,19 @@ $top_kelas = fetchAll("
     LIMIT 5
 ", [$id_tahun]);
 
-// Analitik 3: Transaksi Terbaru
+// [BARU] Analitik Khusus Kepsek: Top 5 Kelas dengan Siswa Terkena SP Terbanyak (Unique Students)
+$top_kelas_sp = fetchAll("
+    SELECT k.nama_kelas, COUNT(DISTINCT sp.id_anggota) as total_siswa_sp
+    FROM tb_riwayat_sp sp
+    JOIN tb_anggota_kelas ak ON sp.id_anggota = ak.id_anggota
+    JOIN tb_kelas k ON ak.id_kelas = k.id_kelas
+    WHERE ak.id_tahun = ? AND sp.status != 'Dibatalkan'
+    GROUP BY k.id_kelas
+    ORDER BY total_siswa_sp DESC
+    LIMIT 5
+", [$id_tahun]);
+
+// Analitik 3: Transaksi Terbaru (Valid Only)
 $recent_trans = fetchAll("
     SELECT ph.id_transaksi, s.nama_siswa, k.nama_kelas, g.nama_guru, ph.tanggal, ph.waktu,
            (SELECT SUM(poin_saat_itu) FROM tb_pelanggaran_detail WHERE id_transaksi = ph.id_transaksi) as total_poin
@@ -92,21 +105,21 @@ $recent_trans = fetchAll("
     JOIN tb_siswa s ON ak.no_induk = s.no_induk
     JOIN tb_kelas k ON ak.id_kelas = k.id_kelas
     JOIN tb_guru g ON ph.id_guru = g.id_guru
-    WHERE ph.id_tahun = ?
+    WHERE ph.id_tahun = ? AND ph.status_pelanggaran = 'Valid'
     ORDER BY ph.tanggal DESC, ph.waktu DESC, ph.id_transaksi DESC
     LIMIT 5
 ", [$id_tahun]);
 
-// [PERBAIKAN] Rincian Surat SP per Kategori dari TABEL RIWAYAT SP (Data Real Surat)
+// [PERBAIKAN] Rincian Surat SP per Kategori dari TABEL RIWAYAT SP (Data Real Surat - Exclude Dibatalkan)
 $sp_detail_cat = fetchAll("
     SELECT sp.kategori_pemicu as kategori, sp.tingkat_sp as tingkat, COUNT(*) as jml
     FROM tb_riwayat_sp sp
     JOIN tb_anggota_kelas ak ON sp.id_anggota = ak.id_anggota
-    WHERE ak.id_tahun = ? 
+    WHERE ak.id_tahun = ? AND sp.status != 'Dibatalkan'
     GROUP BY sp.kategori_pemicu, sp.tingkat_sp
 ", [$id_tahun]);
 
-// [PERBAIKAN] Statistik Total Surat & Menunggu Validasi (Shared)
+// [PERBAIKAN] Statistik Total Surat & Menunggu Validasi (Hanya yang Aktif/Selesai)
 $sp_stats_exec = fetchOne("
     SELECT 
         COUNT(*) as total_surat,
@@ -114,18 +127,18 @@ $sp_stats_exec = fetchOne("
         COUNT(CASE WHEN sp.status = 'Pending' THEN 1 END) as total_pending
     FROM tb_riwayat_sp sp
     JOIN tb_anggota_kelas ak ON sp.id_anggota = ak.id_anggota
-    WHERE ak.id_tahun = ?
+    WHERE ak.id_tahun = ? AND sp.status != 'Dibatalkan'
 ", [$id_tahun]);
 
 // KHUSUS KEPSEK
 if (isKepsek()) {
-    // Analitik 4: Distribusi Pelanggaran per Kategori (Moral vs Kerajinan vs Kerapian)
+    // Analitik 4: Distribusi Pelanggaran per Kategori (Hanya yang Valid)
     $cat_dist = fetchAll("
         SELECT jp.id_kategori, SUM(d.poin_saat_itu) as total_poin
         FROM tb_pelanggaran_header h
         JOIN tb_pelanggaran_detail d ON h.id_transaksi = d.id_transaksi
         JOIN tb_jenis_pelanggaran jp ON d.id_jenis = jp.id_jenis
-        WHERE h.id_tahun = ?
+        WHERE h.id_tahun = ? AND h.status_pelanggaran = 'Valid'
         GROUP BY jp.id_kategori
     ", [$id_tahun]);
     
@@ -133,25 +146,24 @@ if (isKepsek()) {
     foreach($cat_dist as $c) $map_cat[$c['id_kategori']] = (int)$c['total_poin'];
     $total_all_poin = array_sum($map_cat) ?: 1;
 
-    // Analitik 6: Sebaran SP per Jenjang Kelas (Executive Strategy)
+    // Analitik 6: Sebaran Siswa yang Kena SP per Jenjang Kelas (Berdasarkan SP Aktif - Unique Students)
     $sp_by_grade = fetchAll("
-        SELECT k.tingkat, COUNT(*) as jml
-        FROM tb_anggota_kelas ak
+        SELECT k.tingkat, COUNT(DISTINCT sp.id_anggota) as jml
+        FROM tb_riwayat_sp sp
+        JOIN tb_anggota_kelas ak ON sp.id_anggota = ak.id_anggota
         JOIN tb_kelas k ON ak.id_kelas = k.id_kelas
-        WHERE ak.id_tahun = ? 
-        AND (ak.status_sp_kelakuan != 'Aman' OR ak.status_sp_kerajinan != 'Aman' OR ak.status_sp_kerapian != 'Aman')
+        WHERE ak.id_tahun = ? AND sp.status != 'Dibatalkan'
         GROUP BY k.tingkat
         ORDER BY k.tingkat ASC
     ", [$id_tahun]);
 
-
-    // Analitik 8: Tren Bulanan (Sederhana)
+    // Analitik 8: Tren Bulanan (Valid Only)
     $monthly_trend = fetchOne("
         SELECT 
             COUNT(CASE WHEN MONTH(tanggal) = MONTH(CURRENT_DATE) THEN 1 END) as bulan_ini,
             COUNT(CASE WHEN MONTH(tanggal) = MONTH(CURRENT_DATE - INTERVAL 1 MONTH) THEN 1 END) as bulan_lalu
         FROM tb_pelanggaran_header
-        WHERE id_tahun = ?
+        WHERE id_tahun = ? AND status_pelanggaran = 'Valid'
     ", [$id_tahun]);
 
 } else {
@@ -160,7 +172,7 @@ if (isKepsek()) {
     $audit_queue = fetchOne("
         SELECT COUNT(*) as total 
         FROM tb_pelanggaran_header 
-        WHERE id_tahun = ? 
+        WHERE id_tahun = ? AND status_pelanggaran = 'Valid'
         AND (tanggal > CURRENT_DATE - INTERVAL 1 DAY OR (tanggal = CURRENT_DATE AND waktu <= CURRENT_TIME))
     ", [$id_tahun]);
 
@@ -501,7 +513,7 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm p-6";
                     <div class="p-4 border-b border-[#E2E8F0] bg-slate-50/50 flex justify-between items-center">
                         <h3 class="font-bold text-slate-800 text-sm flex items-center">
                             <svg class="w-4 h-4 mr-2 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
-                            <?= isKepsek() ? 'Top 5 Kelas Akumulasi Poin' : 'Audit Alert: Siswa Kena SP Terbaru' ?>
+                            <?= isKepsek() ? 'Top 5 Kelas Terbanyak SP' : 'Audit Alert: Siswa Kena SP Terbaru' ?>
                         </h3>
                     </div>
                     <?php if (isKepsek()): ?>
@@ -509,29 +521,30 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm p-6";
                         <table class="w-full text-left text-sm whitespace-nowrap">
                             <thead class="bg-white text-[10px] font-extrabold text-slate-500 uppercase tracking-wider border-b border-[#E2E8F0]">
                                 <tr>
-                                    <th class="p-4">Kelas</th>
-                                    <th class="p-4 text-center">Jml Siswa Bermasalah</th>
-                                    <th class="p-4 text-right">Total Poin Kelas</th>
+                                    <th class="p-4">Nama Kelas</th>
+                                    <th class="p-4 text-center">Analisis Pelanggaran</th>
+                                    <th class="p-4 text-right">Total Surat SP</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-[#E2E8F0]">
-                                <?php if (empty($top_kelas)): ?>
+                                <?php if (empty($top_kelas_sp)): ?>
                                 <tr>
-                                    <td colspan="3" class="p-8 text-center text-slate-400 font-medium">Belum ada data pelanggaran kelas</td>
+                                    <td colspan="3" class="p-8 text-center text-slate-400 font-medium">Belum ada riwayat SP aktif</td>
                                 </tr>
                                 <?php else: ?>
-                                <?php foreach ($top_kelas as $tk): ?>
+                                <?php foreach ($top_kelas_sp as $tk): ?>
                                 <tr class="hover:bg-slate-50/50 transition-colors">
                                     <td class="p-4 font-bold text-slate-800 text-[13px]">
                                         <?= htmlspecialchars($tk['nama_kelas']) ?>
                                     </td>
-                                    <td class="p-4 text-center text-slate-500 font-medium">
-                                        <span class="px-2.5 py-1 bg-slate-100 text-slate-600 rounded-md text-xs font-bold">
-                                            <?= $tk['jml_siswa_melanggar'] ?> Siswa
-                                        </span>
+                                    <td class="p-4 text-center">
+                                        <div class="flex items-center justify-center gap-1.5">
+                                            <span class="w-2 h-2 rounded-full bg-red-500"></span>
+                                            <p class="text-[10px] font-bold text-slate-500 uppercase">Perlu Pembinaan</p>
+                                        </div>
                                     </td>
-                                    <td class="p-4 text-right font-extrabold text-amber-600">
-                                        <?= number_format($tk['total_poin_kelas']) ?>
+                                    <td class="p-4 text-right font-extrabold text-red-600">
+                                        <?= number_format($tk['total_siswa_sp']) ?> <span class="text-[9px] text-slate-400 ml-1">SISWA</span>
                                     </td>
                                 </tr>
                                 <?php endforeach; ?>

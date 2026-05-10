@@ -39,7 +39,7 @@ $pelanggaran_raw = fetchAll("
     FROM tb_pelanggaran_header h
     JOIN tb_pelanggaran_detail d ON h.id_transaksi = d.id_transaksi
     JOIN tb_jenis_pelanggaran jp ON d.id_jenis = jp.id_jenis
-    WHERE h.id_anggota = :id AND h.id_tahun = :id_tahun AND h.status_revisi != 'Ditolak'
+    WHERE h.id_anggota = :id AND h.id_tahun = :id_tahun AND h.status_revisi != 'Ditolak' AND h.status_pelanggaran = 'Valid'
     ORDER BY h.tanggal ASC
 ", ['id' => $id_anggota, 'id_tahun' => $tahun_aktif['id_tahun']]);
 

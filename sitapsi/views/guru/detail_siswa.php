@@ -58,9 +58,13 @@ if (!$siswa) {
     exit;
 }
 
-// CEK STATUS WALI KELAS
-$id_kelas_wali = $guru['id_kelas'] ?? null;
-$is_wali_kelas = ($id_kelas_wali !== null && $id_kelas_wali == $siswa['id_kelas']);
+// CEK STATUS WALI KELAS (Menggunakan Session sesuai revisi)
+$is_walikelas = $_SESSION['is_walikelas'] ?? 'Tidak';
+$id_kelas_wali = $_SESSION['id_kelas_wali'] ?? null;
+
+// Validasi apakah guru yang login adalah wali kelas dari siswa ini
+$mode = $_GET['mode'] ?? 'guru';
+$is_wali_kelas = ($is_walikelas == 'Ya' && $id_kelas_wali == $siswa['id_kelas'] && $mode == 'wali');
 
 // LOGIKA BARU: Cek histori 1 tahun dan semester berjalan
 $cek_history = fetchOne("
@@ -69,7 +73,7 @@ $cek_history = fetchOne("
         COALESCE(SUM(CASE WHEN h.semester = :semester_berjalan THEN d.poin_saat_itu ELSE 0 END), 0) as total_semester
     FROM tb_pelanggaran_header h
     JOIN tb_pelanggaran_detail d ON h.id_transaksi = d.id_transaksi
-    WHERE h.id_anggota = :id_anggota AND h.id_tahun = :id_tahun
+    WHERE h.id_anggota = :id_anggota AND h.id_tahun = :id_tahun AND h.status_pelanggaran = 'Valid'
 ", [
     'id_anggota' => $id_anggota, 
     'id_tahun' => $tahun_aktif['id_tahun'],
@@ -88,7 +92,7 @@ $list_pelanggaran_dropdown = fetchAll("
     FROM tb_pelanggaran_header h
     JOIN tb_pelanggaran_detail d ON h.id_transaksi = d.id_transaksi
     JOIN tb_jenis_pelanggaran jp ON d.id_jenis = jp.id_jenis
-    WHERE h.id_anggota = ? AND h.id_tahun = ? AND h.status_revisi IN ('None', 'Ditolak')
+    WHERE h.id_anggota = ? AND h.id_tahun = ? AND h.status_revisi IN ('None', 'Ditolak') AND h.status_pelanggaran = 'Valid'
     GROUP BY h.id_transaksi
     ORDER BY h.tanggal DESC
 ", [$id_anggota, $tahun_aktif['id_tahun']]);
@@ -110,8 +114,12 @@ function getPelanggaranByKategori($id_anggota, $id_kategori, $id_tahun, $filter_
             h.semester,
             h.status_revisi,
             h.alasan_revisi,
+            h.balasan_admin,
+            h.waktu_balas,
             h.bukti_foto,
             h.lampiran_link,
+            h.status_pelanggaran,
+            h.keterangan_pembatalan,
             jp.nama_pelanggaran,
             jp.sanksi_default,
             d.poin_saat_itu,
@@ -230,7 +238,7 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
                     </div>
                 </div>
                 <button onclick="openReportModal()" class="w-full sm:w-auto inline-flex items-center justify-center px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold rounded-xl shadow-md transition-colors whitespace-nowrap">
-                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line></svg>
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                     Ajukan Report Data
                 </button>
             </div>
@@ -290,7 +298,7 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
             </div>
 
             <div class="<?= $card_class ?> p-4 flex flex-col sm:flex-row items-center justify-between bg-slate-50/50 gap-4">
-                <div class="flex items-center space-x-3 w-full sm:w-auto">
+                <div class="flex items-center space-x-3 w-full md:w-auto">
                     <span class="text-xs font-bold text-slate-500 uppercase tracking-wide">Pilih Semester:</span>
                     <a href="?id=<?= $id_anggota ?>&semester=Ganjil"
                         class="px-4 py-2 rounded-lg font-bold text-xs transition-colors flex-1 text-center <?= $filter_semester === 'Ganjil' ? 'bg-[#000080] text-white shadow-md' : 'bg-white border border-[#E2E8F0] text-slate-600 hover:bg-slate-100' ?>">
@@ -301,8 +309,15 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
                         Genap
                     </a>
                 </div>
-                <div class="text-xs font-bold px-3 py-1.5 rounded-full <?= $filter_semester === $tahun_aktif['semester_aktif'] ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-slate-100 text-slate-500 border border-slate-200' ?>">
-                    <?= $filter_semester === $tahun_aktif['semester_aktif'] ? '● Aktif' : 'Riwayat Lampau' ?>
+
+                <div class="flex items-center space-x-3">
+                    <button onclick="toggleCanceledRows()" id="btn-toggle-canceled" class="px-4 py-2 bg-white border border-[#E2E8F0] text-slate-600 hover:text-[#000080] hover:border-[#000080] rounded-lg font-bold text-xs transition-all flex items-center shadow-sm">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                        <span id="text-toggle-canceled">Lihat Pembatalan</span>
+                    </button>
+                    <div class="text-xs font-bold px-3 py-1.5 rounded-full <?= $filter_semester === $tahun_aktif['semester_aktif'] ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-slate-100 text-slate-500 border border-slate-200' ?>">
+                        <?= $filter_semester === $tahun_aktif['semester_aktif'] ? '● Aktif' : 'Riwayat Lampau' ?>
+                    </div>
                 </div>
             </div>
 
@@ -340,12 +355,18 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
                             </thead>
                             <tbody class="divide-y divide-[#E2E8F0]">
                                 <?php foreach ($kat['data'] as $p): ?>
-                                <tr class="hover:bg-slate-50/50 transition-colors">
+                                <tr class="hover:bg-slate-50/50 transition-colors <?= $p['status_pelanggaran'] === 'Dibatalkan' ? 'row-canceled hidden bg-red-50/30 grayscale-[0.5]' : '' ?>">
                                     <td class="p-4 whitespace-nowrap align-top">
                                         <p class="font-bold text-slate-700 text-xs"><?= date('d/m/Y', strtotime($p['tanggal'])) ?></p>
                                     </td>
                                     <td class="p-4 align-top">
                                         <p class="text-xs font-bold text-slate-800 leading-relaxed"><?= htmlspecialchars($p['nama_pelanggaran']) ?></p>
+                                        <?php if ($p['status_pelanggaran'] === 'Dibatalkan'): ?>
+                                            <div class="mt-1">
+                                                <span class="text-[9px] text-red-600 bg-red-100 px-1.5 py-0.5 rounded font-extrabold uppercase tracking-tighter">⚠️ Dibatalkan</span>
+                                                <p class="text-[10px] text-red-500 italic mt-0.5 font-bold leading-tight">Alasan: <?= htmlspecialchars($p['keterangan_pembatalan'] ?? 'Data tidak valid') ?></p>
+                                            </div>
+                                        <?php endif; ?>
                                     </td>
                                     
                                     <td class="p-4 align-top text-xs font-medium text-slate-600 leading-relaxed">
@@ -370,7 +391,7 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
                                     </td>
 
                                     <td class="p-4 text-center whitespace-nowrap align-top">
-                                        <span class="px-2.5 py-1 rounded-md text-[11px] font-bold bg-<?= $color ?>-50 text-<?= $color ?>-600 border border-<?= $color ?>-200">+<?= $p['poin_saat_itu'] ?></span>
+                                        <span class="px-2.5 py-1 rounded-md text-[11px] font-bold <?= $is_dibatalkan ? 'bg-slate-100 text-slate-400 line-through' : 'bg-'.$color.'-50 text-'.$color.'-600 border border-'.$color.'-200' ?>">+<?= $p['poin_saat_itu'] ?></span>
                                     </td>
                                     <td class="p-4 text-center whitespace-nowrap align-top">
                                         <?php if ((!empty($p['bukti_foto']) && $p['bukti_foto'] !== 'null') || !empty($p['lampiran_link'])): ?>
@@ -384,11 +405,33 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
                                     <td class="p-4 text-xs font-medium text-slate-700 whitespace-nowrap align-top"><?= htmlspecialchars($p['nama_guru']) ?></td>
                                     <td class="p-4 text-center whitespace-nowrap align-top">
                                         <?php if ($p['status_revisi'] === 'Pending'): ?>
-                                            <span class="inline-flex items-center px-2.5 py-1 bg-amber-50 border border-amber-200 text-amber-600 rounded-md text-[10px] font-bold">Menunggu</span>
-                                        <?php elseif ($p['status_revisi'] === 'Disetujui'): ?>
-                                            <span class="inline-flex items-center px-2.5 py-1 bg-emerald-50 border border-emerald-200 text-emerald-600 rounded-md text-[10px] font-bold">Disetujui</span>
-                                        <?php elseif ($p['status_revisi'] === 'Ditolak'): ?>
-                                            <span class="inline-flex items-center px-2.5 py-1 bg-red-50 border border-red-200 text-red-600 rounded-md text-[10px] font-bold cursor-help" title="<?= htmlspecialchars($p['alasan_revisi']) ?>">Ditolak</span>
+                                            <div class="space-y-1">
+                                                <span class="inline-flex items-center px-2.5 py-1 bg-amber-50 border border-amber-200 text-amber-600 rounded-md text-[10px] font-bold">Menunggu</span>
+                                                <p class="text-[9px] text-slate-400 italic leading-tight">"<?= htmlspecialchars($p['alasan_revisi']) ?>"</p>
+                                            </div>
+                                        <?php elseif ($p['status_revisi'] === 'Disetujui' || $p['status_revisi'] === 'Ditolak'): ?>
+                                            <div class="space-y-2">
+                                                <span class="inline-flex items-center px-2.5 py-1 <?= $p['status_revisi'] === 'Disetujui' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-red-50 border-red-200 text-red-600' ?> border rounded-md text-[10px] font-bold"><?= $p['status_revisi'] ?></span>
+                                                
+                                                <div class="space-y-1.5">
+                                                    <!-- Pesan Guru -->
+                                                    <div class="text-left border-l-2 border-slate-200 pl-2">
+                                                        <p class="text-[9px] text-slate-400 italic">Anda: "<?= htmlspecialchars($p['alasan_revisi']) ?>"</p>
+                                                    </div>
+
+                                                    <!-- Balasan Admin -->
+                                                    <?php if ($p['balasan_admin']): ?>
+                                                        <div class="bg-blue-50/50 p-2 rounded-lg border border-blue-100 text-left min-w-[120px]">
+                                                            <p class="text-[9px] font-black text-blue-600 uppercase tracking-widest mb-1 flex items-center">
+                                                                <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg>
+                                                                Balasan Admin:
+                                                            </p>
+                                                            <p class="text-[10px] text-slate-700 font-bold leading-snug"><?= htmlspecialchars($p['balasan_admin']) ?></p>
+                                                            <p class="text-[8px] text-slate-400 mt-1 text-right"><?= $p['waktu_balas'] ? date('d/m H:i', strtotime($p['waktu_balas'])) : '' ?></p>
+                                                        </div>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </div>
                                         <?php else: ?>
                                             <span class="text-slate-400 font-bold text-lg">-</span>
                                         <?php endif; ?>
@@ -469,6 +512,30 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
 </div>
 
 <script>
+    function toggleCanceledRows() {
+        const rows = document.querySelectorAll('.row-canceled');
+        const btn = document.getElementById('btn-toggle-canceled');
+        const text = document.getElementById('text-toggle-canceled');
+        const isHidden = rows.length > 0 && rows[0].classList.contains('hidden');
+
+        rows.forEach(row => {
+            if (isHidden) {
+                row.classList.remove('hidden');
+            } else {
+                row.classList.add('hidden');
+            }
+        });
+
+        if (isHidden) {
+            btn.classList.add('bg-[#000080]', 'text-white');
+            btn.classList.remove('bg-white', 'text-slate-600');
+            text.textContent = 'Sembunyikan Pembatalan';
+        } else {
+            btn.classList.remove('bg-[#000080]', 'text-white');
+            btn.classList.add('bg-white', 'text-slate-600');
+            text.textContent = 'Lihat Pembatalan';
+        }
+    }
 function switchTab(tab) {
     document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
     document.querySelectorAll('.tab-button').forEach(b => {

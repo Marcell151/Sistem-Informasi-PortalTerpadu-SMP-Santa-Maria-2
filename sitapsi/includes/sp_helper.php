@@ -116,7 +116,7 @@ function recalculateStatusSP($id_anggota) {
             }
         }
         
-        // Jika SP turun di kategori ini, hapus riwayat SP Pending yang tidak relevan
+        // Jika SP turun di kategori ini, tandai riwayat SP Pending sebagai 'Dibatalkan' (Audit Trail)
         if (($level_order[$status_baru] ?? 0) < ($level_order[$status_lama] ?? 0)) {
             $levels_to_remove = [];
             foreach ($level_order as $level => $order) {
@@ -128,7 +128,9 @@ function recalculateStatusSP($id_anggota) {
             if (!empty($levels_to_remove)) {
                 $levels_str = implode(',', $levels_to_remove);
                 executeQuery("
-                    DELETE FROM tb_riwayat_sp 
+                    UPDATE tb_riwayat_sp 
+                    SET status = 'Dibatalkan',
+                        catatan_admin = CONCAT(IFNULL(catatan_admin, ''), '\n\n[SISTEM]: SP Dibatalkan otomatis karena penurunan poin (Soft Delete Audit Trail).')
                     WHERE id_anggota = :id 
                     AND tingkat_sp IN ($levels_str)
                     AND kategori_pemicu = :kategori
@@ -167,5 +169,45 @@ function recalculateStatusSP($id_anggota) {
         'kerapian' => $status_baru_per_kategori[3],
         'tertinggi' => $status_tertinggi
     ];
+}
+
+/**
+ * REVISI POIN 3: SINKRONISASI TOTAL POIN (AUDIT TRAIL SAFE)
+ * Fungsi ini menghitung ulang total poin dari nol berdasarkan transaksi yang berstatus 'Valid'.
+ * Digunakan setelah proses Soft Delete / Pembatalan Transaksi.
+ */
+function syncTotalPoinSiswa($id_anggota) {
+    // Ambil rekap poin terbaru hanya dari yang 'Valid'
+    $poin = fetchOne("
+        SELECT 
+            COALESCE(SUM(CASE WHEN jp.id_kategori = 1 THEN d.poin_saat_itu ELSE 0 END), 0) as kelakuan,
+            COALESCE(SUM(CASE WHEN jp.id_kategori = 2 THEN d.poin_saat_itu ELSE 0 END), 0) as kerajinan,
+            COALESCE(SUM(CASE WHEN jp.id_kategori = 3 THEN d.poin_saat_itu ELSE 0 END), 0) as kerapian
+        FROM tb_pelanggaran_header h
+        JOIN tb_pelanggaran_detail d ON h.id_transaksi = d.id_transaksi
+        JOIN tb_jenis_pelanggaran jp ON d.id_jenis = jp.id_jenis
+        WHERE h.id_anggota = :id AND h.status_pelanggaran = 'Valid'
+    ", ['id' => $id_anggota]);
+    
+    $total = $poin['kelakuan'] + $poin['kerajinan'] + $poin['kerapian'];
+    
+    // Update master data di tb_anggota_kelas
+    executeQuery("
+        UPDATE tb_anggota_kelas 
+        SET poin_kelakuan = :kl,
+            poin_kerajinan = :kj,
+            poin_kerapian = :kp,
+            total_poin_umum = :total
+        WHERE id_anggota = :id
+    ", [
+        'kl' => $poin['kelakuan'],
+        'kj' => $poin['kerajinan'],
+        'kp' => $poin['kerapian'],
+        'total' => $total,
+        'id' => $id_anggota
+    ]);
+    
+    // Panggil ulang penentuan level SP
+    recalculateStatusSP($id_anggota);
 }
 ?>

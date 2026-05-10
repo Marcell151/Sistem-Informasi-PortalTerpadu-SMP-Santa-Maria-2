@@ -48,7 +48,7 @@ if ($id_kelas) {
             (SELECT COALESCE(SUM(d.poin_saat_itu), 0) 
              FROM tb_pelanggaran_header h 
              JOIN tb_pelanggaran_detail d ON h.id_transaksi = d.id_transaksi 
-             WHERE h.id_anggota = a.id_anggota AND h.id_tahun = a.id_tahun) as total_tahunan,
+             WHERE h.id_anggota = a.id_anggota AND h.id_tahun = a.id_tahun AND h.status_pelanggaran = 'Valid') as total_tahunan,
             
             -- Poin Per Kategori khusus Semester (Menggunakan parameter unik untuk menghindari HY093)
             (SELECT COALESCE(SUM(d.poin_saat_itu), 0) 
@@ -56,21 +56,21 @@ if ($id_kelas) {
              JOIN tb_pelanggaran_detail d ON h.id_transaksi = d.id_transaksi 
              JOIN tb_jenis_pelanggaran j ON d.id_jenis = j.id_jenis
              WHERE h.id_anggota = a.id_anggota AND h.id_tahun = a.id_tahun 
-             AND h.semester = :sem1 AND j.id_kategori = 1) as poin_kelakuan_smt,
+             AND h.semester = :sem1 AND j.id_kategori = 1 AND h.status_pelanggaran = 'Valid') as poin_kelakuan_smt,
              
             (SELECT COALESCE(SUM(d.poin_saat_itu), 0) 
              FROM tb_pelanggaran_header h 
              JOIN tb_pelanggaran_detail d ON h.id_transaksi = d.id_transaksi 
              JOIN tb_jenis_pelanggaran j ON d.id_jenis = j.id_jenis
              WHERE h.id_anggota = a.id_anggota AND h.id_tahun = a.id_tahun 
-             AND h.semester = :sem2 AND j.id_kategori = 2) as poin_kerajinan_smt,
+             AND h.semester = :sem2 AND j.id_kategori = 2 AND h.status_pelanggaran = 'Valid') as poin_kerajinan_smt,
              
             (SELECT COALESCE(SUM(d.poin_saat_itu), 0) 
              FROM tb_pelanggaran_header h 
              JOIN tb_pelanggaran_detail d ON h.id_transaksi = d.id_transaksi 
              JOIN tb_jenis_pelanggaran j ON d.id_jenis = j.id_jenis
              WHERE h.id_anggota = a.id_anggota AND h.id_tahun = a.id_tahun 
-             AND h.semester = :sem3 AND j.id_kategori = 3) as poin_kerapian_smt,
+             AND h.semester = :sem3 AND j.id_kategori = 3 AND h.status_pelanggaran = 'Valid') as poin_kerapian_smt,
              
             a.status_sp_terakhir,
             a.status_sp_kelakuan,

@@ -17,6 +17,7 @@ $tahun_aktif = fetchOne("SELECT id_tahun, nama_tahun, semester_aktif FROM tb_tah
 
 // Filter
 $filter_tipe = $_GET['tipe'] ?? 'all';
+$filter_status = $_GET['status'] ?? 'all';
 $filter_dari = $_GET['dari'] ?? date('Y-m-01'); // Awal bulan ini
 $filter_sampai = $_GET['sampai'] ?? date('Y-m-d'); // Hari ini
 
@@ -29,6 +30,8 @@ $sql = "
         h.tipe_form,
         h.bukti_foto,
         h.lampiran_link,
+        h.status_pelanggaran,
+        h.keterangan_pembatalan,
         s.no_induk,
         s.nama_siswa,
         k.nama_kelas,
@@ -56,6 +59,11 @@ $params = [
 if ($filter_tipe !== 'all') {
     $sql .= " AND h.tipe_form = :tipe";
     $params['tipe'] = ucfirst($filter_tipe);
+}
+
+if ($filter_status !== 'all') {
+    $sql .= " AND h.status_pelanggaran = :status";
+    $params['status'] = $filter_status;
 }
 
 $sql .= " GROUP BY h.id_transaksi ORDER BY h.tanggal DESC, h.waktu DESC";
@@ -134,12 +142,20 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
                     </div>
 
                     <div>
-                        <button type="submit" class="<?= $btn_primary ?> w-full h-[42px]">
-                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                            Filter Data
-                        </button>
+                        <label class="<?= $label_class ?>">Status</label>
+                        <select name="status" class="<?= $input_class ?>">
+                            <option value="all">Semua Status</option>
+                            <option value="Valid" <?= $filter_status === 'Valid' ? 'selected' : '' ?>>Hanya Valid</option>
+                            <option value="Dibatalkan" <?= $filter_status === 'Dibatalkan' ? 'selected' : '' ?>>Hanya Dibatalkan</option>
+                        </select>
                     </div>
 
+                    <div class="flex items-end">
+                        <button type="submit" class="<?= $btn_primary ?> w-full h-[38px]">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                            Filter
+                        </button>
+                    </div>
                 </form>
             </div>
 
@@ -177,8 +193,10 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
                                 </td>
                             </tr>
                             <?php else: ?>
-                            <?php foreach($log_transaksi as $log): ?>
-                            <tr class="hover:bg-slate-50/50 transition-colors">
+                            <?php foreach($log_transaksi as $log): 
+                                $is_batal = ($log['status_pelanggaran'] === 'Dibatalkan');
+                            ?>
+                            <tr class="hover:bg-slate-50/50 transition-colors <?= $is_batal ? 'bg-red-50/40 grayscale-[0.5]' : '' ?>">
                                 <td class="p-4 text-slate-800">
                                     <span class="font-bold"><?= date('d/m/Y', strtotime($log['tanggal'])) ?></span><br>
                                     <span class="text-[10px] font-medium text-slate-500"><?= substr($log['waktu'], 0, 5) ?></span>
@@ -188,12 +206,18 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
                                     <p class="text-[10px] font-medium text-slate-500 bg-slate-100 inline-block px-1.5 py-0.5 rounded mt-0.5"><?= $log['nama_kelas'] ?> • <?= $log['no_induk'] ?></p>
                                 </td>
                                 <td class="p-4 text-slate-700 max-w-xs">
-                                    <div class="truncate text-xs" title="<?= htmlspecialchars($log['pelanggaran_list'] ?: '-') ?>">
+                                    <div class="truncate text-xs <?= $is_batal ? 'line-through text-slate-400' : '' ?>" title="<?= htmlspecialchars($log['pelanggaran_list'] ?: '-') ?>">
                                         <?= htmlspecialchars($log['pelanggaran_list'] ?: '-') ?>
                                     </div>
+                                    <?php if ($is_batal): ?>
+                                        <div class="mt-1">
+                                            <span class="px-1.5 py-0.5 bg-red-100 text-red-700 text-[8px] font-bold rounded uppercase">⚠️ Dibatalkan</span>
+                                            <p class="text-[9px] text-red-500 italic font-medium mt-0.5"><?= htmlspecialchars($log['keterangan_pembatalan'] ?? 'Data tidak valid') ?></p>
+                                        </div>
+                                    <?php endif; ?>
                                 </td>
                                 <td class="p-4 text-center">
-                                    <span class="px-2 py-1 text-[11px] font-bold rounded-md bg-red-50 text-red-600 border border-red-200">
+                                    <span class="px-2 py-1 text-[11px] font-bold rounded-md <?= $is_batal ? 'bg-slate-100 text-slate-400 line-through border-slate-200' : 'bg-red-50 text-red-600 border border-red-200' ?>">
                                         +<?= $log['total_poin'] ?>
                                     </span>
                                 </td>
@@ -226,10 +250,17 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
                                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                                         </button>
                                         
-                                        <button onclick="deleteTransaction(<?= $log['id_transaksi'] ?>)" 
-                                                class="p-1.5 bg-white border border-red-200 text-red-600 rounded-md hover:bg-red-50 transition-colors shadow-sm" title="Hapus">
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                                        </button>
+                                        <?php if ($log['status_pelanggaran'] === 'Valid'): ?>
+                                            <button onclick="deleteTransaction(<?= $log['id_transaksi'] ?>, '<?= addslashes($log['nama_siswa']) ?>')" 
+                                                    class="p-1.5 bg-white border border-red-200 text-red-600 rounded-md hover:bg-red-50 transition-colors shadow-sm" title="Batalkan (Audit Trail)">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                            </button>
+                                        <?php else: ?>
+                                            <button onclick="restoreTransaction(<?= $log['id_transaksi'] ?>, '<?= addslashes($log['nama_siswa']) ?>')" 
+                                                    class="p-1.5 bg-white border border-emerald-200 text-emerald-600 rounded-md hover:bg-emerald-50 transition-colors shadow-sm" title="Aktifkan Kembali">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                                            </button>
+                                        <?php endif; ?>
                                         <?php endif; ?>
                                     </div>
                                 </td>
@@ -297,11 +328,23 @@ function editTransaction(id) {
     window.location.href = `edit_pelanggaran.php?id=${id}`;
 }
 
-function deleteTransaction(id) {
-    if (confirm('⚠️ PERINGATAN!\n\nMenghapus transaksi akan:\n• Mengurangi poin siswa secara otomatis\n• Menghapus riwayat pelanggaran\n• Tidak dapat dikembalikan\n\nYakin ingin menghapus?')) {
-        window.location.href = `../../actions/hapus_transaksi.php?id=${id}&redirect=audit`;
+    function deleteTransaction(id, nama) {
+        const alasan = prompt(`⚠️ BATALKAN TRANSAKSI (AUDIT TRAIL)\n\nAnda akan membatalkan transaksi untuk "${nama}". Poin siswa akan otomatis dikurangi.\n\nMasukkan alasan pembatalan:`, "Salah input data");
+        
+        if (alasan !== null) {
+            if (alasan.trim() === "") {
+                alert("Alasan pembatalan tidak boleh kosong!");
+                return;
+            }
+            window.location.href = `../../actions/hapus_transaksi.php?id=${id}&alasan=${encodeURIComponent(alasan)}`;
+        }
     }
-}
+
+    function restoreTransaction(id, nama) {
+        if (confirm(`🔄 AKTIFKAN KEMBALI\n\nAnda akan mengaktifkan kembali transaksi untuk "${nama}" yang sebelumnya dibatalkan.\n\nPoin siswa akan dihitung kembali secara otomatis.\n\nLanjutkan?`)) {
+            window.location.href = `../../actions/aktifkan_transaksi.php?id=${id}`;
+        }
+    }
 </script>
 
 </body>

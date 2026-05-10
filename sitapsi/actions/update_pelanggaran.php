@@ -98,6 +98,23 @@ try {
         'dt' => $diff_total,
         'id' => $id_anggota
     ]);
+
+    // [BARU] Jika berasal dari halaman Report, otomatis tandai report sebagai Disetujui (Adjustment)
+    if ($source === 'report') {
+        $balasan_admin = $_POST['balasan_admin'] ?? 'Transaksi telah diperbarui oleh Admin.';
+        
+        // Update di header
+        executeQuery("UPDATE tb_pelanggaran_header SET status_revisi = 'Disetujui', balasan_admin = :balasan, waktu_balas = NOW() WHERE id_transaksi = :id", [
+            'balasan' => $balasan_admin,
+            'id' => $id_transaksi
+        ]);
+
+        // Update di feedback ortu jika ada
+        executeQuery("UPDATE tb_feedback_ortu SET balasan_admin = :balasan, waktu_balas = NOW() WHERE id_transaksi = :id", [
+            'balasan' => $balasan_admin,
+            'id' => $id_transaksi
+        ]);
+    }
     
     $pdo->commit();
     

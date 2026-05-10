@@ -8,12 +8,42 @@ require_once '../../includes/session_check.php';
 requireGuru();
 
 $id_kelas = $_GET['kelas'] ?? null;
+$sort = $_GET['sort'] ?? 'nama';
 
-// Ambil info guru yang login secara spesifik
-$id_guru_login = $_SESSION['user_id'];
-$guru = fetchOne("SELECT id_guru, nama_guru, id_kelas FROM tb_guru WHERE id_guru = :id", ['id' => $id_guru_login]);
+// Ambil info dari Session (yang baru disetel di auth.php)
+$is_walikelas = $_SESSION['is_walikelas'] ?? null;
+$id_kelas_wali = $_SESSION['id_kelas_wali'] ?? null;
 
-$id_kelas_wali = $guru['id_kelas'] ?? null;
+// REVISI POIN 2: Jika session kosong (misal login sebelum update), ambil ulang dari DB
+if ($is_walikelas === null || !isset($_SESSION['mapel_guru'])) {
+    $guru_data = fetchOne("SELECT is_walikelas, id_kelas, mapel FROM tb_guru WHERE id_guru = :id", ['id' => $_SESSION['user_id']]);
+    if ($guru_data) {
+        $is_walikelas = $guru_data['is_walikelas'];
+        $id_kelas_wali = $guru_data['id_kelas'];
+        $mapel_guru = $guru_data['mapel'];
+        $_SESSION['is_walikelas'] = $is_walikelas;
+        $_SESSION['id_kelas_wali'] = $id_kelas_wali;
+        $_SESSION['mapel_guru'] = $mapel_guru;
+    } else {
+        $is_walikelas = 'Tidak';
+        $mapel_guru = '-';
+    }
+} else {
+    $mapel_guru = $_SESSION['mapel_guru'];
+}
+
+// LOGIKA MODE SWITCHER (REVISI BARU)
+$mode = $_GET['mode'] ?? ($is_walikelas == 'Ya' ? 'wali' : 'guru');
+// Jika bukan wali kelas, paksa mode guru
+if ($is_walikelas != 'Ya') $mode = 'guru';
+
+// Tentukan ID Kelas berdasarkan Mode
+if ($mode == 'wali') {
+    $id_kelas = $id_kelas_wali;
+} else {
+    // Mode Guru: ambil dari GET atau default ke kelas pertama
+    $id_kelas = $_GET['kelas'] ?? null;
+}
 
 $tahun_aktif = fetchOne("
     SELECT id_tahun, nama_tahun, semester_aktif
@@ -22,7 +52,18 @@ $tahun_aktif = fetchOne("
     LIMIT 1
 ");
 
-$kelas_list = fetchAll("SELECT * FROM tb_kelas ORDER BY tingkat, nama_kelas");
+// LOGIKA FILTER KELAS BERDASARKAN MAPEL (BIAR DOSEN WOW)
+$tingkat_diajar = [];
+if (strpos($mapel_guru, '(VII)') !== false) $tingkat_diajar[] = '7';
+if (strpos($mapel_guru, '(VIII)') !== false) $tingkat_diajar[] = '8';
+if (strpos($mapel_guru, '(IX)') !== false) $tingkat_diajar[] = '9';
+
+if (!empty($tingkat_diajar)) {
+    $placeholders = implode(',', array_fill(0, count($tingkat_diajar), '?'));
+    $kelas_list = fetchAll("SELECT * FROM tb_kelas WHERE tingkat IN ($placeholders) ORDER BY tingkat, nama_kelas", $tingkat_diajar);
+} else {
+    $kelas_list = fetchAll("SELECT * FROM tb_kelas ORDER BY tingkat, nama_kelas");
+}
 
 if (!$id_kelas && !empty($kelas_list)) {
     $id_kelas = $kelas_list[0]['id_kelas'];
@@ -33,6 +74,12 @@ if ($id_kelas) {
     $kelas_info = fetchOne("SELECT * FROM tb_kelas WHERE id_kelas = :id", ['id' => $id_kelas]);
     $semester_berjalan = $tahun_aktif['semester_aktif'];
     
+    // LOGIKA SORTING (REVISI POIN 2)
+    $order_by = "s.nama_siswa ASC";
+    if ($sort === 'poin') {
+        $order_by = "a.total_poin_umum DESC";
+    }
+
     // LOGIKA CODING: Ditambahkan sub-query total_tahunan & total_semester (nis diubah ke no_induk)
     $siswa_kelas = fetchAll("
         SELECT 
@@ -50,17 +97,17 @@ if ($id_kelas) {
             (SELECT COALESCE(SUM(d.poin_saat_itu), 0) 
              FROM tb_pelanggaran_header h 
              JOIN tb_pelanggaran_detail d ON h.id_transaksi = d.id_transaksi 
-             WHERE h.id_anggota = a.id_anggota AND h.id_tahun = a.id_tahun) as total_tahunan,
+             WHERE h.id_anggota = a.id_anggota AND h.id_tahun = a.id_tahun AND h.status_pelanggaran = 'Valid') as total_tahunan,
             (SELECT COALESCE(SUM(d.poin_saat_itu), 0) 
              FROM tb_pelanggaran_header h 
              JOIN tb_pelanggaran_detail d ON h.id_transaksi = d.id_transaksi 
-             WHERE h.id_anggota = a.id_anggota AND h.id_tahun = a.id_tahun AND h.semester = :semester) as total_semester
+             WHERE h.id_anggota = a.id_anggota AND h.id_tahun = a.id_tahun AND h.semester = :semester AND h.status_pelanggaran = 'Valid') as total_semester
         FROM tb_siswa s
         JOIN tb_anggota_kelas a ON s.no_induk = a.no_induk
         WHERE s.status_aktif = 'Aktif' 
         AND a.id_tahun = :id_tahun
         AND a.id_kelas = :id_kelas
-        ORDER BY s.nama_siswa
+        ORDER BY $order_by
     ", [
         'id_tahun' => $tahun_aktif['id_tahun'],
         'id_kelas' => $id_kelas,
@@ -85,8 +132,13 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
         
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <div>
-                <h1 class="text-2xl font-extrabold text-slate-800 tracking-tight">Rekapitulasi Poin Kelas</h1>
-                <p class="text-sm font-medium text-slate-500">Lihat total pelanggaran dan status SP siswa</p>
+                <?php if ($is_walikelas == 'Ya' && $id_kelas == $id_kelas_wali): ?>
+                    <h1 class="text-2xl font-extrabold text-[#000080] tracking-tight">Data Siswa Perwalian Anda</h1>
+                    <p class="text-sm font-medium text-slate-500">Menampilkan data otomatis untuk kelas Anda.</p>
+                <?php else: ?>
+                    <h1 class="text-2xl font-extrabold text-slate-800 tracking-tight">Rekapitulasi Poin Kelas</h1>
+                    <p class="text-sm font-medium text-slate-500">Lihat total pelanggaran dan status SP siswa</p>
+                <?php endif; ?>
             </div>
             
             <?php if ($id_kelas && $id_kelas == $id_kelas_wali): ?>
@@ -108,16 +160,43 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
         <div class="space-y-6">
 
             <div class="<?= $card_class ?> p-5 bg-slate-50/50">
-                <form method="GET" class="flex flex-col sm:flex-row gap-4 items-start sm:items-end max-w-md">
-                    <div class="w-full">
-                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Pilih Kelas</label>
-                        <select name="kelas" onchange="this.form.submit()" class="w-full px-4 py-2.5 border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#000080]/20 focus:border-[#000080] text-sm font-bold text-slate-700 bg-white">
+                <form method="GET" class="flex flex-col lg:flex-row gap-6 items-start lg:items-end w-full">
+                    <!-- Switcher Mode (Hanya muncul untuk Wali Kelas) -->
+                    <?php if ($is_walikelas == 'Ya'): ?>
+                    <div class="flex-shrink-0">
+                        <label class="block text-xs font-extrabold text-slate-500 uppercase tracking-widest mb-2">Mode Tampilan</label>
+                        <div class="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+                            <a href="?mode=wali" class="px-4 py-2 rounded-lg text-xs font-bold transition-all <?= $mode == 'wali' ? 'bg-[#000080] text-white shadow-md' : 'text-slate-500 hover:bg-slate-50' ?>">
+                                Wali Kelas
+                            </a>
+                            <a href="?mode=guru" class="px-4 py-2 rounded-lg text-xs font-bold transition-all <?= $mode == 'guru' ? 'bg-[#000080] text-white shadow-md' : 'text-slate-500 hover:bg-slate-50' ?>">
+                                Guru Mapel
+                            </a>
+                        </div>
+                        <input type="hidden" name="mode" value="<?= $mode ?>">
+                    </div>
+                    <?php endif; ?>
+
+                    <!-- Filter Kelas (Hanya muncul di Mode Guru) -->
+                    <?php if ($mode == 'guru'): ?>
+                    <div class="w-full lg:w-48">
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Pilih Kelas</label>
+                        <select name="kelas" onchange="this.form.submit()" class="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#000080]/10 focus:border-[#000080] text-sm font-bold text-slate-700 shadow-sm">
                             <?php foreach ($kelas_list as $k): ?>
                             <option value="<?= $k['id_kelas'] ?>" <?= $id_kelas == $k['id_kelas'] ? 'selected' : '' ?>>
-                                <?= htmlspecialchars($k['nama_kelas']) ?> 
-                                <?= ($k['id_kelas'] == $id_kelas_wali) ? '(Wali Kelas)' : '' ?>
+                                <?= htmlspecialchars($k['nama_kelas']) ?>
                             </option>
                             <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <?php endif; ?>
+
+                    <!-- Sorting -->
+                    <div class="flex-1 w-full max-w-md">
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Urutkan Siswa</label>
+                        <select name="sort" onchange="this.form.submit()" class="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#000080]/10 focus:border-[#000080] text-sm font-bold text-slate-700 shadow-sm">
+                            <option value="nama" <?= $sort == 'nama' ? 'selected' : '' ?>>Abjad (A - Z)</option>
+                            <option value="poin" <?= $sort == 'poin' ? 'selected' : '' ?>>Total Poin (Tertinggi - Terendah)</option>
                         </select>
                     </div>
                 </form>
@@ -131,9 +210,9 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
                     <div>
                         <h2 class="text-2xl font-extrabold mb-1">Kelas <?= htmlspecialchars($kelas_info['nama_kelas']) ?></h2>
                         <p class="text-blue-200 font-medium text-sm">Tahun Ajaran <?= $tahun_aktif['nama_tahun'] ?></p>
-                        <?php if($id_kelas_wali == $id_kelas): ?>
+                        <?php if($mode == 'wali' && $id_kelas_wali == $id_kelas): ?>
                             <span class="inline-block mt-3 px-3 py-1 bg-amber-400 text-amber-900 rounded-md text-[10px] font-extrabold uppercase tracking-wider shadow-sm">
-                                👑 Kelas Anda (Wali Kelas)
+                                Kelas Anda (Wali Kelas)
                             </span>
                         <?php endif; ?>
                     </div>
@@ -204,7 +283,13 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
                                 </td>
                                 
                                 <td class="p-3 text-center bg-slate-50 border-l border-[#E2E8F0]">
-                                    <span class="px-2.5 py-1 bg-slate-800 text-white rounded-md text-[11px] font-extrabold shadow-sm"><?= $siswa['total_poin_umum'] ?></span>
+                                    <?php 
+                                        $is_high_point = ($siswa['total_poin_umum'] >= 50);
+                                        $badge_color = $is_high_point ? 'bg-red-600 animate-pulse' : 'bg-slate-800';
+                                    ?>
+                                    <span class="px-2.5 py-1 <?= $badge_color ?> text-white rounded-md text-[11px] font-extrabold shadow-sm">
+                                        <?= $siswa['total_poin_umum'] ?>
+                                    </span>
                                 </td>
                                 
                                 <td class="p-3 text-center border-l border-[#E2E8F0]">
@@ -214,7 +299,7 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
                                 </td>
 
                                 <td class="p-3 text-center">
-                                    <a href="detail_siswa.php?id=<?= $siswa['id_anggota'] ?>" class="px-3 py-1.5 bg-white border border-[#E2E8F0] text-slate-700 rounded-md hover:bg-slate-50 hover:text-[#000080] text-xs font-bold shadow-sm transition-colors inline-block">
+                                    <a href="detail_siswa.php?id=<?= $siswa['id_anggota'] ?>&mode=<?= $mode ?>" class="px-3 py-1.5 bg-white border border-[#E2E8F0] text-slate-700 rounded-md hover:bg-slate-50 hover:text-[#000080] text-xs font-bold shadow-sm transition-colors inline-block">
                                         Detail
                                     </a>
                                 </td>

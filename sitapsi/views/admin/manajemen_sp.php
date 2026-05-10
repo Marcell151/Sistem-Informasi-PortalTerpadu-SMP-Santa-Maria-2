@@ -49,6 +49,9 @@ if ($filter_kelas !== 'all') {
 if ($filter_status !== 'all') {
     $sql .= " AND sp.status = :status";
     $params['status'] = $filter_status;
+} else {
+    // Default 'all' sembunyikan yang dibatalkan agar tidak memenuhi halaman
+    $sql .= " AND sp.status != 'Dibatalkan'";
 }
 
 if ($filter_semester === 'Ganjil') {
@@ -59,6 +62,7 @@ if ($filter_semester === 'Ganjil') {
 
 $sql .= " ORDER BY sp.tanggal_terbit DESC, sp.id_sp DESC";
 $riwayat_sp = fetchAll($sql, $params);
+
 
 $success = $_SESSION['success_message'] ?? '';
 $error = $_SESSION['error_message'] ?? '';
@@ -142,9 +146,10 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
                     <div>
                         <label class="<?= $label_class ?>">Status SP</label>
                         <select name="status" class="<?= $input_class ?>">
-                            <option value="all">Semua Status</option>
-                            <option value="Pending" <?= $filter_status === 'Pending' ? 'selected' : '' ?>>Menunggu TTD</option>
+                            <option value="all">Semua SP Aktif</option>
+                            <option value="Pending" <?= $filter_status === 'Pending' ? 'selected' : '' ?>>Pending</option>
                             <option value="Selesai" <?= $filter_status === 'Selesai' ? 'selected' : '' ?>>Selesai</option>
+                            <option value="Dibatalkan" <?= $filter_status === 'Dibatalkan' ? 'selected' : '' ?>>Hanya Dibatalkan</option>
                         </select>
                     </div>
                     <div>
@@ -216,7 +221,11 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
                                 </td>
                                 <td class="p-4 text-center">
                                     <span class="px-2.5 py-1 rounded-md text-[10px] font-bold shadow-sm block mb-1.5 mx-auto w-fit
-                                        <?= $sp['status'] === 'Pending' ? 'bg-amber-50 text-amber-600 border border-amber-200' : 'bg-emerald-50 text-emerald-600 border border-emerald-200' ?>">
+                                        <?php
+                                            if ($sp['status'] === 'Pending') echo 'bg-amber-50 text-amber-600 border border-amber-200';
+                                            elseif ($sp['status'] === 'Selesai') echo 'bg-emerald-50 text-emerald-600 border border-emerald-200';
+                                            else echo 'bg-slate-100 text-slate-500 border border-slate-200';
+                                        ?>">
                                         <?= $sp['status'] ?>
                                     </span>
                                     
@@ -310,16 +319,39 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                 </button>
             </div>
-            <div class="p-6">
-                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Tanggapan Untuk Siswa:</p>
-                <p id="baca_nama_siswa" class="font-extrabold text-slate-800 text-lg mb-4"></p>
+            <div class="p-6 space-y-4">
+                <div>
+                    <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Tanggapan Untuk Siswa:</p>
+                    <p id="baca_nama_siswa" class="font-extrabold text-slate-800 text-lg"></p>
+                </div>
                 <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 relative">
                     <div class="absolute -left-2 top-4 w-4 h-4 bg-slate-50 border-l border-t border-slate-200 transform -rotate-45"></div>
                     <p id="baca_isi_balasan" class="text-sm font-medium text-slate-700 leading-relaxed relative z-10 whitespace-pre-wrap"></p>
                 </div>
-            </div>
-            <div class="p-4 border-t border-slate-100 bg-slate-50/50">
-                <button type="button" onclick="tutupModalBalasan()" class="w-full py-2.5 bg-white border border-slate-300 text-slate-700 font-bold rounded-lg shadow-sm hover:bg-slate-100 transition-colors text-sm">Tutup & Mengerti</button>
+                
+                <form id="form-balas-admin" action="../../actions/balas_feedback.php" method="POST" class="mt-6 pt-6 border-t border-slate-100">
+                    <input type="hidden" name="id_feedback" id="input_id_feedback">
+                    <input type="hidden" name="id_transaksi_fb" id="input_id_transaksi_fb">
+                    
+                    <label class="block text-xs font-bold text-[#000080] mb-2 uppercase tracking-wide">Balas Tanggapan Orang Tua:</label>
+                    <textarea name="balasan_admin" id="input_balasan_admin" required rows="3" placeholder="Tuliskan balasan atau klarifikasi Anda di sini..." class="w-full px-4 py-3 border border-blue-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm font-medium text-slate-700 transition-all resize-none bg-blue-50/30"></textarea>
+                    
+                    <div id="status-balasan" class="mt-2 text-[10px] font-bold text-emerald-600 hidden mb-3">✓ Sudah Dibalas</div>
+                    
+                    <div class="flex flex-col gap-2">
+                        <button type="submit" class="w-full py-2.5 bg-[#000080] text-white font-bold rounded-lg shadow-md hover:bg-blue-900 transition-colors text-sm flex items-center justify-center">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                            Kirim Balasan
+                        </button>
+
+                        <div id="btn-opsi-batal" class="hidden">
+                            <button type="button" onclick="setujuiSanggahanHarian()" class="w-full py-2.5 bg-rose-600 text-white font-bold rounded-lg shadow-md hover:bg-rose-700 transition-colors text-sm flex items-center justify-center">
+                                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                Setujui Sanggahan & Batalkan Poin
+                            </button>
+                        </div>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
@@ -338,11 +370,34 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
         document.getElementById('modal-pesan').classList.add('hidden');
     }
 
-    // [BARU] Logika AJAX untuk menandai pesan sudah dibaca
-    function lihatBalasan(id_feedback, nama, balasan) {
+    // [BARU] Logika AJAX untuk menandai pesan sudah dibaca & Ambil Balasan Admin
+    function lihatBalasan(id_feedback, nama, balasan, id_transaksi = null) {
         document.getElementById('baca_nama_siswa').innerText = nama;
         document.getElementById('baca_isi_balasan').innerText = balasan;
+        document.getElementById('input_id_feedback').value = id_feedback;
+        document.getElementById('input_id_transaksi_fb').value = id_transaksi || '';
         document.getElementById('modal-baca-balasan').classList.remove('hidden');
+
+        // Tampilkan tombol opsi batal jika ada id_transaksi (Feedback Harian)
+        if (id_transaksi) {
+            document.getElementById('btn-opsi-batal').classList.remove('hidden');
+        } else {
+            document.getElementById('btn-opsi-batal').classList.add('hidden');
+        }
+
+        // Reset form balasan
+        document.getElementById('input_balasan_admin').value = '';
+        document.getElementById('status-balasan').classList.add('hidden');
+
+        // Ambil data balasan admin jika ada
+        fetch('../../actions/get_balasan_ajax.php?id=' + id_feedback)
+            .then(response => response.json())
+            .then(data => {
+                if(data.balasan_admin) {
+                    document.getElementById('input_balasan_admin').value = data.balasan_admin;
+                    document.getElementById('status-balasan').classList.remove('hidden');
+                }
+            });
 
         // Panggil action background untuk mengubah status menjadi "Sudah Dibaca"
         fetch('../../actions/tandai_dibaca.php?id=' + id_feedback)
@@ -361,6 +416,24 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
         // Jika statusnya tadi adalah pesan baru, refresh halaman agar indikator merahnya hilang
         if (document.getElementById('modal-baca-balasan').getAttribute('data-need-reload') === 'true') {
             window.location.reload();
+        }
+    }
+
+    function lihatBalasanHarian(id, nama, isi, id_transaksi, pelanggaran) {
+        const textFull = `SANGGAHAN HARIAN:\nPelanggaran: ${pelanggaran}\n\nPesan Ortu:\n"${isi}"`;
+        lihatBalasan(id, nama, textFull, id_transaksi);
+    }
+
+    function setujuiSanggahanHarian() {
+        const id_transaksi = document.getElementById('input_id_transaksi_fb').value;
+        const id_feedback = document.getElementById('input_id_feedback').value;
+        const nama = document.getElementById('baca_nama_siswa').innerText;
+
+        if (confirm(`✅ SETUJUI SANGGAHAN\n\nAnda akan membatalkan poin pelanggaran untuk "${nama}".\n\nData transaksi akan tetap ada namun berstatus 'Dibatalkan' (Audit Trail). Lanjutkan?`)) {
+            const alasan = prompt("Masukkan alasan pembatalan (Akan dilihat oleh Ortu & Wali Kelas):", "Sanggahan diterima Admin - Data tidak valid");
+            if (alasan) {
+                window.location.href = `../../actions/batalkan_transaksi_admin.php?id=${id_transaksi}&id_feedback=${id_feedback}&alasan=${encodeURIComponent(alasan)}`;
+            }
         }
     }
 </script>

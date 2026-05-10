@@ -104,8 +104,8 @@ function handleGuruLogin() {
         redirectToLogin('PIN harus 6 digit angka.');
     }
     
-    // Query guru dengan prepared statement
-    $sql = "SELECT id_guru, nama_guru, nip, pin_validasi, status 
+    // Query guru dengan prepared statement (ditambah kolom role wali)
+    $sql = "SELECT id_guru, nama_guru, nip, pin_validasi, status, is_walikelas, id_kelas 
             FROM tb_guru 
             WHERE id_guru = :guru_id 
             AND status = 'Aktif' 
@@ -130,6 +130,8 @@ function handleGuruLogin() {
     $_SESSION['username'] = $guru['nama_guru'];
     $_SESSION['nama_lengkap'] = $guru['nama_guru'];
     $_SESSION['nip'] = $guru['nip'];
+    $_SESSION['is_walikelas'] = $guru['is_walikelas'];
+    $_SESSION['id_kelas_wali'] = $guru['id_kelas'];
     $_SESSION['role'] = 'Guru';
     $_SESSION['login_type'] = 'guru';
     $_SESSION['login_time'] = time();

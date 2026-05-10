@@ -40,21 +40,21 @@ $siswa_kelas = fetchAll("
          JOIN tb_pelanggaran_detail d ON h.id_transaksi = d.id_transaksi 
          JOIN tb_jenis_pelanggaran j ON d.id_jenis = j.id_jenis
          WHERE h.id_anggota = a.id_anggota AND h.id_tahun = a.id_tahun 
-         AND h.semester = :sem1 AND j.id_kategori = 1) as poin_kelakuan_smt,
+         AND h.semester = :sem1 AND j.id_kategori = 1 AND h.status_pelanggaran = 'Valid') as poin_kelakuan_smt,
          
         (SELECT COALESCE(SUM(d.poin_saat_itu), 0) 
          FROM tb_pelanggaran_header h 
          JOIN tb_pelanggaran_detail d ON h.id_transaksi = d.id_transaksi 
          JOIN tb_jenis_pelanggaran j ON d.id_jenis = j.id_jenis
          WHERE h.id_anggota = a.id_anggota AND h.id_tahun = a.id_tahun 
-         AND h.semester = :sem2 AND j.id_kategori = 2) as poin_kerajinan_smt,
+         AND h.semester = :sem2 AND j.id_kategori = 2 AND h.status_pelanggaran = 'Valid') as poin_kerajinan_smt,
          
         (SELECT COALESCE(SUM(d.poin_saat_itu), 0) 
          FROM tb_pelanggaran_header h 
          JOIN tb_pelanggaran_detail d ON h.id_transaksi = d.id_transaksi 
          JOIN tb_jenis_pelanggaran j ON d.id_jenis = j.id_jenis
          WHERE h.id_anggota = a.id_anggota AND h.id_tahun = a.id_tahun 
-         AND h.semester = :sem3 AND j.id_kategori = 3) as poin_kerapian_smt
+         AND h.semester = :sem3 AND j.id_kategori = 3 AND h.status_pelanggaran = 'Valid') as poin_kerapian_smt
     FROM tb_siswa s
     JOIN tb_anggota_kelas a ON s.no_induk = a.no_induk
     WHERE a.id_tahun = :id_tahun AND a.id_kelas = :id_kelas

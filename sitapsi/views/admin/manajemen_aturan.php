@@ -52,6 +52,20 @@ $pelanggaran_list = fetchAll($sql_pelanggaran, $params);
 
 $sanksi_list = fetchAll("SELECT * FROM tb_sanksi_ref ORDER BY CAST(kode_sanksi AS UNSIGNED)");
 
+// Ambil sub kategori dikelompokkan berdasarkan id_kategori untuk filter dinamis
+$all_sub_categories = fetchAll("
+    SELECT id_kategori, sub_kategori 
+    FROM tb_jenis_pelanggaran 
+    WHERE sub_kategori != '' 
+    GROUP BY id_kategori, sub_kategori 
+    ORDER BY id_kategori, sub_kategori
+");
+
+$sub_kat_by_id = [];
+foreach ($all_sub_categories as $sk) {
+    $sub_kat_by_id[$sk['id_kategori']][] = $sk['sub_kategori'];
+}
+
 $success = $_SESSION['success_message'] ?? '';
 $error = $_SESSION['error_message'] ?? '';
 unset($_SESSION['success_message'], $_SESSION['error_message']);
@@ -69,6 +83,12 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manajemen Aturan - SITAPSI</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
 </head>
 <body class="bg-[#F8FAFC]">
 
@@ -328,17 +348,24 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
             <div class="grid grid-cols-2 gap-5">
                 <div>
                     <label class="<?= $label_class ?>">Kategori *</label>
-                    <select name="id_kategori" required class="<?= $input_class ?>">
+                    <select name="id_kategori" id="select_kategori" required class="<?= $input_class ?>" onchange="filterSubKategori(this.value)">
                         <option value="">Pilih Kategori</option>
                         <?php foreach ($kategori_list as $k): ?>
                         <option value="<?= $k['id_kategori'] ?>"><?= $k['nama_kategori'] ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <div>
-                    <label class="<?= $label_class ?>">Sub Kategori *</label>
-                    <input type="text" name="sub_kategori" required placeholder="Contoh: 02. Sikap & Moral" class="<?= $input_class ?>">
+            <div>
+                <label class="<?= $label_class ?>">Sub Kategori *</label>
+                <select name="sub_kategori" id="select_sub_kategori" required class="<?= $input_class ?>" onchange="toggleSubBaru(this.value)">
+                    <option value="">-- Pilih Kategori Dulu --</option>
+                </select>
+                <div id="wrapper_sub_baru" class="hidden mt-3 p-3 bg-blue-50/50 rounded-xl border border-blue-100">
+                    <label class="block text-[10px] font-bold text-blue-600 uppercase mb-1">Nama Sub Kategori Baru:</label>
+                    <input type="text" name="sub_kategori_baru" placeholder="Contoh: Kegiatan Luar" class="<?= $input_class ?> border-blue-200">
+                    <p class="text-[9px] text-blue-400 mt-1 italic">Sistem akan otomatis memberikan nomor urut berdasarkan urutan terakhir.</p>
                 </div>
+            </div>
             </div>
             <div>
                 <label class="<?= $label_class ?>">Nama Pelanggaran *</label>
@@ -349,11 +376,28 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
                     <label class="<?= $label_class ?>">Poin Default *</label>
                     <input type="number" name="poin_default" min="1" required placeholder="100" class="<?= $input_class ?>">
                 </div>
-                <div>
-                    <label class="<?= $label_class ?>">Kode Sanksi Default *</label>
-                    <input type="text" name="sanksi_default" required placeholder="1,5,7" class="<?= $input_class ?>">
-                    <p class="text-[10px] text-slate-500 mt-1 font-medium">Pisahkan dengan koma jika lebih dari satu</p>
+            <div>
+                <label class="<?= $label_class ?>">Kode Sanksi Default *</label>
+                <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 max-h-48 overflow-y-auto custom-scrollbar">
+                    <div class="space-y-3">
+                        <?php foreach ($sanksi_list as $s): ?>
+                        <label class="flex items-start space-x-3 cursor-pointer group">
+                            <div class="flex items-center h-5">
+                                <input type="checkbox" name="sanksi_default[]" value="<?= $s['kode_sanksi'] ?>" class="w-4 h-4 rounded border-slate-300 text-[#000080] focus:ring-[#000080]/20">
+                            </div>
+                            <div class="text-xs">
+                                <span class="font-bold text-slate-800 group-hover:text-[#000080] transition-colors"><?= $s['kode_sanksi'] ?></span>
+                                <span class="text-slate-500 font-medium ml-1">- <?= htmlspecialchars($s['deskripsi']) ?></span>
+                            </div>
+                        </label>
+                        <?php endforeach; ?>
+                    </div>
                 </div>
+                <p class="text-[10px] text-slate-400 mt-2 italic flex items-center">
+                    <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path></svg>
+                    Bisa pilih lebih dari satu sanksi
+                </p>
+            </div>
             </div>
             <div class="flex gap-3 pt-2">
                 <button type="button" onclick="closeModal('modal-tambah-pelanggaran')" class="<?= $btn_outline ?> flex-1">Batal</button>
@@ -395,10 +439,24 @@ $card_class = "bg-white border border-[#E2E8F0] rounded-xl shadow-sm";
                     <label class="<?= $label_class ?>">Poin Default *</label>
                     <input type="number" name="poin_default" id="edit-poin-default" min="1" required class="<?= $input_class ?>">
                 </div>
-                <div>
-                    <label class="<?= $label_class ?>">Kode Sanksi Default *</label>
-                    <input type="text" name="sanksi_default" id="edit-sanksi-default" required class="<?= $input_class ?>">
+            <div>
+                <label class="<?= $label_class ?>">Kode Sanksi Default *</label>
+                <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 max-h-48 overflow-y-auto custom-scrollbar">
+                    <div class="space-y-3">
+                        <?php foreach ($sanksi_list as $s): ?>
+                        <label class="flex items-start space-x-3 cursor-pointer group">
+                            <div class="flex items-center h-5">
+                                <input type="checkbox" name="sanksi_default[]" value="<?= $s['kode_sanksi'] ?>" class="edit-sanksi-checkbox w-4 h-4 rounded border-slate-300 text-[#000080] focus:ring-[#000080]/20">
+                            </div>
+                            <div class="text-xs">
+                                <span class="font-bold text-slate-800 group-hover:text-[#000080] transition-colors"><?= $s['kode_sanksi'] ?></span>
+                                <span class="text-slate-500 font-medium ml-1">- <?= htmlspecialchars($s['deskripsi']) ?></span>
+                            </div>
+                        </label>
+                        <?php endforeach; ?>
+                    </div>
                 </div>
+            </div>
             </div>
             <div class="flex gap-3 pt-2">
                 <button type="button" onclick="closeModal('modal-edit-pelanggaran')" class="<?= $btn_outline ?> flex-1">Batal</button>
@@ -525,7 +583,14 @@ function editPelanggaran(data) {
     document.getElementById('edit-sub-kategori').value = data.sub_kategori;
     document.getElementById('edit-nama-pelanggaran').value = data.nama_pelanggaran;
     document.getElementById('edit-poin-default').value = data.poin_default;
-    document.getElementById('edit-sanksi-default').value = data.sanksi_default;
+    
+    // Reset and Check sanksi checkboxes
+    const checkboxes = document.querySelectorAll('.edit-sanksi-checkbox');
+    const sanksiArray = data.sanksi_default ? data.sanksi_default.split(',') : [];
+    checkboxes.forEach(cb => {
+        cb.checked = sanksiArray.includes(cb.value);
+    });
+
     document.getElementById('modal-edit-pelanggaran').classList.remove('hidden');
 }
 
@@ -556,6 +621,51 @@ function hapusSanksi(id) {
         window.location.href = `../../actions/hapus_sanksi.php?id=${id}`;
     }
 }
+
+    // Data Sub Kategori per ID Kategori
+    const subKatData = <?= json_encode($sub_kat_by_id) ?>;
+
+    function filterSubKategori(id_kat) {
+        const selectSub = document.getElementById('select_sub_kategori');
+        const wrapper = document.getElementById('wrapper_sub_baru');
+        
+        // Reset dropdown sub
+        selectSub.innerHTML = '<option value="">Pilih Sub Kategori</option>';
+        wrapper.classList.add('hidden');
+        wrapper.querySelector('input').removeAttribute('required');
+
+        if (id_kat && subKatData[id_kat]) {
+            subKatData[id_kat].forEach(sub => {
+                const opt = document.createElement('option');
+                opt.value = sub;
+                opt.textContent = sub;
+                selectSub.appendChild(opt);
+            });
+        }
+        
+        if (id_kat) {
+            // Tambahkan opsi "Baru"
+            const optNew = document.createElement('option');
+            optNew.value = 'NEW_SUB';
+            optNew.textContent = '--- Tambah Sub Kategori Baru ---';
+            optNew.className = 'bg-blue-50 font-bold text-blue-700';
+            selectSub.appendChild(optNew);
+        } else {
+            selectSub.innerHTML = '<option value="">-- Pilih Kategori Dulu --</option>';
+        }
+    }
+
+    function toggleSubBaru(val) {
+        const wrapper = document.getElementById('wrapper_sub_baru');
+        const input = wrapper.querySelector('input');
+        if (val === 'NEW_SUB') {
+            wrapper.classList.remove('hidden');
+            input.setAttribute('required', 'required');
+        } else {
+            wrapper.classList.add('hidden');
+            input.removeAttribute('required');
+        }
+    }
 </script>
 
 </body>

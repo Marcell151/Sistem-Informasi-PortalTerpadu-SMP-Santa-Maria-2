@@ -18,7 +18,9 @@ try {
     $sub_kategori = trim($_POST['sub_kategori']);
     $nama_pelanggaran = trim($_POST['nama_pelanggaran']);
     $poin_default = (int)$_POST['poin_default'];
-    $sanksi_default = trim($_POST['sanksi_default']);
+    $sanksi_default_array = $_POST['sanksi_default'] ?? [];
+    
+    $sanksi_default = implode(',', $sanksi_default_array);
     
     // Validasi
     if (empty($id_jenis) || empty($nama_pelanggaran) || $poin_default < 0) {

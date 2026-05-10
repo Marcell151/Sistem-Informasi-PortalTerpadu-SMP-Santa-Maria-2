@@ -69,11 +69,12 @@ $nama_tahun_siswa = $tahun_siswa_info ? $tahun_siswa_info['nama_tahun'] : $tahun
 // 3. LOGIKA REWARD
 $cek_history = fetchOne("
     SELECT 
-        COALESCE(SUM(d.poin_saat_itu), 0) as total_tahunan,
-        COALESCE(SUM(CASE WHEN h.semester = :semester_berjalan THEN d.poin_saat_itu ELSE 0 END), 0) as total_semester
+        COUNT(*) as total_tahunan,
+        SUM(CASE WHEN h.semester = :semester_berjalan THEN 1 ELSE 0 END) as total_semester
     FROM tb_pelanggaran_header h
-    JOIN tb_pelanggaran_detail d ON h.id_transaksi = d.id_transaksi
-    WHERE h.id_anggota = :id_anggota AND h.id_tahun = :id_tahun
+    WHERE h.id_anggota = :id_anggota 
+      AND h.id_tahun = :id_tahun 
+      AND h.status_pelanggaran = 'Valid'
 ", [
     'id_anggota' => $id_anggota, 
     'id_tahun' => $id_tahun_siswa,
@@ -89,20 +90,32 @@ foreach($ref_sanksi as $rs) {
     $map_sanksi[$rs['kode_sanksi']] = $rs['deskripsi'];
 }
 
-// [MODIFIKASI] Ambil Riwayat SP beserta "Catatan Admin"
-$riwayat_sp = fetchAll("
-    SELECT id_sp, tingkat_sp, kategori_pemicu, tanggal_terbit, status, catatan_admin 
+// [MODIFIKASI] Ambil Semua Riwayat SP (Aktif & Selesai) untuk histori ortu
+$semua_sp = fetchAll("
+    SELECT id_sp, tingkat_sp, kategori_pemicu, tanggal_terbit, status, catatan_admin,
+           (SELECT isi_feedback FROM tb_feedback_ortu WHERE id_sp = tb_riwayat_sp.id_sp ORDER BY tanggal_kirim DESC LIMIT 1) as balasan_ortu,
+           (SELECT tanggal_kirim FROM tb_feedback_ortu WHERE id_sp = tb_riwayat_sp.id_sp ORDER BY tanggal_kirim DESC LIMIT 1) as waktu_balasan,
+           (SELECT balasan_admin FROM tb_feedback_ortu WHERE id_sp = tb_riwayat_sp.id_sp ORDER BY tanggal_kirim DESC LIMIT 1) as balasan_admin,
+           (SELECT waktu_balas FROM tb_feedback_ortu WHERE id_sp = tb_riwayat_sp.id_sp ORDER BY tanggal_kirim DESC LIMIT 1) as waktu_balas_admin
     FROM tb_riwayat_sp 
-    WHERE id_anggota = :id_anggota AND status = 'Pending'
+    WHERE id_anggota = :id_anggota AND status != 'Dibatalkan'
+    ORDER BY status DESC, tanggal_terbit DESC
 ", ['id_anggota' => $id_anggota]);
+
+$riwayat_sp_aktif = array_filter($semua_sp, function($s) { return $s['status'] === 'Pending'; });
+$riwayat_sp_selesai = array_filter($semua_sp, function($s) { return $s['status'] === 'Selesai'; });
 
 // Helper query pelanggaran per kategori
 function getPelanggaranOrtu($id_anggota, $id_kategori, $id_tahun, $filter_semester) {
     $sql = "
         SELECT 
-            h.id_transaksi, h.tanggal, h.waktu, h.bukti_foto, h.lampiran_link,
+            h.id_transaksi, h.tanggal, h.waktu, h.bukti_foto, h.lampiran_link, h.status_pelanggaran, h.keterangan_pembatalan,
             jp.nama_pelanggaran, jp.sanksi_default, d.poin_saat_itu,
-            GROUP_CONCAT(DISTINCT sr.kode_sanksi SEPARATOR ',') as sanksi_aktual_kode
+            GROUP_CONCAT(DISTINCT sr.kode_sanksi SEPARATOR ',') as sanksi_aktual_kode,
+            (SELECT isi_feedback FROM tb_feedback_ortu WHERE id_transaksi = h.id_transaksi ORDER BY tanggal_kirim DESC LIMIT 1) as feedback_ortu,
+            (SELECT tanggal_kirim FROM tb_feedback_ortu WHERE id_transaksi = h.id_transaksi ORDER BY tanggal_kirim DESC LIMIT 1) as feedback_tanggal,
+            (SELECT balasan_admin FROM tb_feedback_ortu WHERE id_transaksi = h.id_transaksi ORDER BY tanggal_kirim DESC LIMIT 1) as balasan_admin,
+            (SELECT waktu_balas FROM tb_feedback_ortu WHERE id_transaksi = h.id_transaksi ORDER BY tanggal_kirim DESC LIMIT 1) as waktu_balas_admin
         FROM tb_pelanggaran_header h
         JOIN tb_pelanggaran_detail d ON h.id_transaksi = d.id_transaksi
         JOIN tb_jenis_pelanggaran jp ON d.id_jenis = jp.id_jenis
@@ -118,6 +131,19 @@ function getPelanggaranOrtu($id_anggota, $id_kategori, $id_tahun, $filter_semest
 $pelanggaran_kelakuan = getPelanggaranOrtu($id_anggota, 1, $id_tahun_siswa, $filter_semester);
 $pelanggaran_kerajinan = getPelanggaranOrtu($id_anggota, 2, $id_tahun_siswa, $filter_semester);
 $pelanggaran_kerapian = getPelanggaranOrtu($id_anggota, 3, $id_tahun_siswa, $filter_semester);
+
+// [BARU] Gabungkan semua untuk dropdown keberatan
+$semua_pelanggaran = array_merge($pelanggaran_kelakuan, $pelanggaran_kerajinan, $pelanggaran_kerapian);
+
+// Pastikan hanya transaksi unik & valid yang masuk dropdown
+$pelanggaran_valid = [];
+$seen_ids = [];
+foreach($semua_pelanggaran as $p) {
+    if ($p['status_pelanggaran'] === 'Valid' && !in_array($p['id_transaksi'], $seen_ids)) {
+        $pelanggaran_valid[] = $p;
+        $seen_ids[] = $p['id_transaksi'];
+    }
+}
 
 $card_class = "bg-white border border-slate-200 rounded-2xl shadow-sm";
 
@@ -203,7 +229,7 @@ unset($_SESSION['feedback_success'], $_SESSION['feedback_error']);
             </div>
             <?php endif; ?>
 
-            <?php if (!empty($riwayat_sp)): ?>
+            <?php if (!empty($riwayat_sp_aktif)): ?>
             <div class="bg-red-50 border-2 border-red-400 rounded-2xl p-5 sm:p-6 shadow-md relative overflow-hidden">
                 <svg class="absolute -right-4 -bottom-4 w-32 h-32 text-red-500 opacity-10" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a8 8 0 100 16 8 8 0 000-16zM9 13v-2h2v2H9zm0-8h2v5H9V5z"></path></svg>
                 
@@ -216,7 +242,7 @@ unset($_SESSION['feedback_success'], $_SESSION['feedback_error']);
                             <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
                                 <div>
                                     <h4 class="font-black text-red-800 text-lg sm:text-xl mb-1 uppercase tracking-wider">Perhatian Wali Murid!</h4>
-                                    <p class="text-sm text-red-700 font-medium mb-3">Terdapat <strong class="font-extrabold"><?= count($riwayat_sp) ?> Surat Peringatan (SP)</strong> aktif yang membutuhkan perhatian Anda.</p>
+                                    <p class="text-sm text-red-700 font-medium mb-3">Terdapat <strong class="font-extrabold"><?= count($riwayat_sp_aktif) ?> Surat Peringatan (SP)</strong> aktif yang membutuhkan perhatian Anda.</p>
                                 </div>
                                 <button onclick="bukaModalFeedback()" class="flex-shrink-0 px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-black text-sm rounded-xl shadow-md transition-transform transform active:scale-95 flex items-center justify-center gap-2">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
@@ -225,7 +251,7 @@ unset($_SESSION['feedback_success'], $_SESSION['feedback_error']);
                             </div>
 
                             <div class="space-y-3 mt-2">
-                                <?php foreach($riwayat_sp as $sp): ?>
+                                <?php foreach($riwayat_sp_aktif as $sp): ?>
                                     <div class="bg-white/60 border border-red-200 rounded-xl p-4">
                                         <div class="flex items-center gap-2 mb-2">
                                             <span class="inline-flex items-center px-2.5 py-0.5 bg-red-100 text-red-700 text-xs font-extrabold rounded-md uppercase">
@@ -261,12 +287,92 @@ unset($_SESSION['feedback_success'], $_SESSION['feedback_error']);
                                                 <p class="text-[9px] text-slate-400 mt-1"><?= date('d M Y H:i', strtotime($sp['waktu_balasan'])) ?> WIB</p>
                                             </div>
                                         <?php endif; ?>
+
+                                        <?php if (!empty($sp['balasan_admin'])): ?>
+                                            <div class="mt-3 p-3 bg-emerald-50 border-l-4 border-emerald-500 rounded-r-lg ml-8 shadow-sm">
+                                                <p class="text-[10px] font-extrabold text-emerald-800 uppercase tracking-wider mb-1 flex items-center">
+                                                    <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg>
+                                                    Tanggapan Balik Admin:
+                                                </p>
+                                                <p class="text-sm text-slate-700 font-bold">"<?= nl2br(htmlspecialchars($sp['balasan_admin'])) ?>"</p>
+                                                <p class="text-[9px] text-slate-400 mt-1 text-right"><?= date('d M Y H:i', strtotime($sp['waktu_balas_admin'])) ?> WIB</p>
+                                            </div>
+                                        <?php endif; ?>
                                     </div>
                                 <?php endforeach; ?>
                             </div>
 
                         </div>
                     </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <?php if (!empty($riwayat_sp_selesai)): ?>
+            <div class="<?= $card_class ?> p-6">
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="text-sm font-extrabold text-slate-800 uppercase tracking-widest flex items-center">
+                        <svg class="w-5 h-5 mr-2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        Histori Surat Peringatan (SP)
+                    </h3>
+                    <span class="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded"><?= count($riwayat_sp_selesai) ?> Record</span>
+                </div>
+                
+                <div class="space-y-3">
+                    <?php foreach($riwayat_sp_selesai as $sp): ?>
+                        <div class="border border-slate-100 rounded-2xl overflow-hidden transition-all hover:border-slate-200 shadow-sm">
+                            <!-- Header Accordion -->
+                            <button onclick="toggleAccordion('sp-<?= $sp['id_sp'] ?>')" class="w-full flex items-center justify-between p-4 bg-white hover:bg-slate-50 transition-colors text-left group">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-9 h-9 bg-slate-100 text-slate-500 rounded-xl flex items-center justify-center font-bold text-xs group-hover:bg-white transition-colors">
+                                        <?= strtoupper(substr($sp['tingkat_sp'], 0, 1)) ?>
+                                    </div>
+                                    <div>
+                                        <h5 class="text-sm font-bold text-slate-700"><?= $sp['tingkat_sp'] ?> <span class="font-normal text-slate-400">(<?= $sp['kategori_pemicu'] ?>)</span></h5>
+                                        <p class="text-[10px] text-slate-400 font-medium"><?= date('d M Y', strtotime($sp['tanggal_terbit'])) ?></p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <span class="hidden sm:inline-block px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded text-[9px] font-bold uppercase tracking-wider">Tervalidasi</span>
+                                    <svg id="icon-sp-<?= $sp['id_sp'] ?>" class="w-5 h-5 text-slate-300 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                                </div>
+                            </button>
+
+                            <!-- Body Accordion (Hidden by Default) -->
+                            <div id="content-sp-<?= $sp['id_sp'] ?>" class="hidden bg-slate-50/50 border-t border-slate-100">
+                                <div class="p-4 pt-2 space-y-3">
+                                    <?php if (!empty($sp['balasan_ortu'])): ?>
+                                        <div class="mt-2 space-y-3 pl-4 border-l-2 border-slate-200">
+                                            <!-- Pesan Ortu -->
+                                            <div class="bg-blue-50/50 p-3 rounded-xl border border-blue-100/50">
+                                                <p class="text-[9px] font-black text-blue-600 uppercase tracking-widest mb-1 flex items-center">
+                                                    <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
+                                                    Pesan Anda:
+                                                </p>
+                                                <p class="text-xs text-slate-700 font-medium italic leading-relaxed">"<?= htmlspecialchars($sp['balasan_ortu']) ?>"</p>
+                                            </div>
+
+                                            <!-- Balasan Admin -->
+                                            <?php if (!empty($sp['balasan_admin'])): ?>
+                                                <div class="bg-emerald-50/50 p-3 rounded-xl border border-emerald-100/50">
+                                                    <p class="text-[9px] font-black text-emerald-600 uppercase tracking-widest mb-1 flex items-center">
+                                                        <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg>
+                                                        Tanggapan Admin:
+                                                    </p>
+                                                    <p class="text-xs text-slate-800 font-bold leading-relaxed">"<?= htmlspecialchars($sp['balasan_admin']) ?>"</p>
+                                                    <p class="text-[8px] text-slate-400 mt-1 text-right"><?= date('d/m H:i', strtotime($sp['waktu_balas_admin'])) ?></p>
+                                                </div>
+                                            <?php endif; ?>
+                                        </div>
+                                    <?php else: ?>
+                                        <div class="py-2 text-center">
+                                            <p class="text-[11px] text-slate-400 italic">Diselesaikan melalui pertemuan tatap muka / tanpa feedback portal.</p>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
                 </div>
             </div>
             <?php endif; ?>
@@ -349,6 +455,19 @@ unset($_SESSION['feedback_success'], $_SESSION['feedback_error']);
                         Genap
                     </a>
                 </div>
+
+                <div class="flex items-center gap-2 w-full sm:w-auto">
+                    <!-- TOMBOL AJUKAN KEBERATAN UNIFIED -->
+                    <button onclick="bukaModalFeedbackTransaksi()" class="flex-1 sm:flex-none inline-flex items-center justify-center px-5 py-2.5 bg-blue-600 text-white text-xs font-bold rounded-xl shadow-md hover:bg-blue-700 transition-colors">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
+                        Ajukan Keberatan
+                    </button>
+                    
+                    <!-- TOGGLE LIHAT DIBATALKAN -->
+                    <button id="btn-toggle-dibatalkan" onclick="toggleDibatalkan()" class="inline-flex items-center px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 font-bold text-[10px] uppercase tracking-wider transition-all">
+                        Lihat Pembatalan
+                    </button>
+                </div>
             </div>
 
             <div class="<?= $card_class ?> overflow-hidden">
@@ -384,8 +503,10 @@ unset($_SESSION['feedback_success'], $_SESSION['feedback_error']);
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-200">
-                                <?php foreach ($kat['data'] as $p): ?>
-                                <tr class="hover:bg-slate-50/80 transition-colors">
+                                <?php foreach ($kat['data'] as $p): 
+                                    $is_dibatalkan = ($p['status_pelanggaran'] === 'Dibatalkan');
+                                ?>
+                                <tr class="hover:bg-slate-50/80 transition-colors <?= $is_dibatalkan ? 'bg-red-50/30 row-dibatalkan hidden' : 'row-valid' ?>">
                                     <td class="p-4 whitespace-nowrap align-top">
                                         <p class="font-bold text-slate-800 text-sm"><?= date('d/m/Y', strtotime($p['tanggal'])) ?></p>
                                         <p class="text-xs text-slate-500 font-medium mt-1"><?= substr($p['waktu'], 0, 5) ?></p>
@@ -393,6 +514,40 @@ unset($_SESSION['feedback_success'], $_SESSION['feedback_error']);
                                     
                                     <td class="p-4 align-top">
                                         <p class="text-sm font-bold text-slate-800 leading-relaxed"><?= htmlspecialchars($p['nama_pelanggaran']) ?></p>
+                                        
+                                        <!-- [BARU] THREAD PERCAKAPAN SANGGAHAN -->
+                                        <?php if ($p['feedback_ortu']): ?>
+                                            <div class="mt-3 space-y-2 border-l-2 border-slate-100 pl-3">
+                                                <!-- Pesan Ortu -->
+                                                <div class="bg-blue-50/50 p-2.5 rounded-lg border border-blue-100/50">
+                                                    <p class="text-[9px] font-black text-blue-600 uppercase tracking-widest mb-1 flex items-center">
+                                                        <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
+                                                        Sanggahan Anda:
+                                                    </p>
+                                                    <p class="text-[11px] text-slate-700 font-medium leading-relaxed italic">"<?= htmlspecialchars($p['feedback_ortu']) ?>"</p>
+                                                    <p class="text-[8px] text-slate-400 mt-1"><?= date('d/m H:i', strtotime($p['feedback_tanggal'])) ?></p>
+                                                </div>
+
+                                                <!-- Balasan Admin -->
+                                                <?php if ($p['balasan_admin']): ?>
+                                                    <div class="bg-emerald-50/50 p-2.5 rounded-lg border border-emerald-100/50 ml-2">
+                                                        <p class="text-[9px] font-black text-emerald-600 uppercase tracking-widest mb-1 flex items-center">
+                                                            <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg>
+                                                            Balasan Sekolah:
+                                                        </p>
+                                                        <p class="text-[11px] text-slate-800 font-bold leading-relaxed">"<?= htmlspecialchars($p['balasan_admin']) ?>"</p>
+                                                        <p class="text-[8px] text-slate-400 mt-1 text-right"><?= date('d/m H:i', strtotime($p['waktu_balas_admin'])) ?></p>
+                                                    </div>
+                                                <?php endif; ?>
+                                            </div>
+                                        <?php endif; ?>
+
+                                        <?php if ($p['status_pelanggaran'] === 'Dibatalkan'): ?>
+                                            <div class="mt-2">
+                                                <span class="text-[9px] text-red-600 bg-red-50 px-1.5 py-0.5 rounded border border-red-100 font-extrabold uppercase">⚠️ Dibatalkan</span>
+                                                <p class="text-[10px] text-red-500 italic mt-1 font-bold leading-tight">Alasan: <?= htmlspecialchars($p['keterangan_pembatalan'] ?? 'Data tidak valid') ?></p>
+                                            </div>
+                                        <?php endif; ?>
                                     </td>
                                     
                                     <td class="p-4 align-top text-sm font-medium text-slate-700 leading-relaxed">
@@ -417,7 +572,7 @@ unset($_SESSION['feedback_success'], $_SESSION['feedback_error']);
                                     </td>
                                     
                                     <td class="p-4 text-center whitespace-nowrap align-top">
-                                        <span class="px-3 py-1.5 rounded-lg text-sm font-extrabold bg-<?= $color ?>-50 text-<?= $color ?>-600 border border-<?= $color ?>-200">+<?= $p['poin_saat_itu'] ?></span>
+                                        <span class="px-3 py-1.5 rounded-lg text-sm font-extrabold <?= $p['status_pelanggaran'] === 'Dibatalkan' ? 'bg-slate-100 text-slate-400 line-through border-slate-200' : 'bg-'.$color.'-50 text-'.$color.'-600 border border-'.$color.'-200' ?>">+<?= $p['poin_saat_itu'] ?></span>
                                     </td>
                                     
                                     <td class="p-4 text-center whitespace-nowrap align-top">
@@ -598,6 +753,101 @@ function bukaModalFeedback() {
 function tutupModalFeedback() {
     document.getElementById('modal-feedback').classList.add('hidden');
 }
+
+// [BARU] TOGGLE DIBATALKAN
+let showDibatalkan = false;
+function toggleDibatalkan() {
+    showDibatalkan = !showDibatalkan;
+    const rows = document.querySelectorAll('.row-dibatalkan');
+    const btn = document.getElementById('btn-toggle-dibatalkan');
+    
+    rows.forEach(r => {
+        if(showDibatalkan) r.classList.remove('hidden');
+        else r.classList.add('hidden');
+    });
+    
+    if(showDibatalkan) {
+        btn.innerText = 'Sembunyikan Pembatalan';
+        btn.classList.add('bg-red-50', 'text-red-600', 'border-red-200');
+    } else {
+        btn.innerText = 'Lihat Pembatalan';
+        btn.classList.remove('bg-red-50', 'text-red-600', 'border-red-200');
+    }
+}
+
+// [BARU] BUKA TUTUP MODAL FEEDBACK PER TRANSAKSI UNIFIED
+function bukaModalFeedbackTransaksi(id = null) {
+    if(id) {
+        document.getElementById('fb_id_transaksi').value = id;
+    }
+    document.getElementById('modal-feedback-transaksi').classList.remove('hidden');
+}
+function tutupModalFeedbackTransaksi() {
+    document.getElementById('modal-feedback-transaksi').classList.add('hidden');
+}
 </script>
+
+<!-- MODAL FEEDBACK TRANSAKSI (AUDIT TRAIL) -->
+<div id="modal-feedback-transaksi" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onclick="tutupModalFeedbackTransaksi()"></div>
+    <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full relative z-10 overflow-hidden transform transition-all border border-blue-100">
+        <div class="p-6 border-b border-blue-50 bg-blue-50/50 flex justify-between items-center">
+            <h3 class="font-extrabold text-[#000080] flex items-center">
+                <svg class="w-6 h-6 mr-3 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
+                Ajukan Sanggahan
+            </h3>
+            <button onclick="tutupModalFeedbackTransaksi()" class="text-slate-400 hover:text-slate-600 transition-colors">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+        </div>
+        
+        <form action="../../sitapsi/actions/submit_feedback_ortu.php" method="POST" class="p-8 space-y-6">
+            <input type="hidden" name="id_ortu" value="<?= $id_ortu ?>">
+            <input type="hidden" name="no_induk" value="<?= $no_induk ?>">
+            
+            <div>
+                <label class="block text-xs font-bold text-slate-400 mb-2 uppercase tracking-widest">Pilih Transaksi Pelanggaran: *</label>
+                <select name="id_transaksi" id="fb_id_transaksi" required class="w-full px-5 py-4 border border-blue-100 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm font-medium text-slate-700 transition-all bg-slate-50/50">
+                    <option value="" disabled selected>-- Pilih Pelanggaran --</option>
+                    <?php if(empty($pelanggaran_valid)): ?>
+                        <option value="" disabled>Tidak ada pelanggaran valid</option>
+                    <?php else: ?>
+                        <?php foreach($pelanggaran_valid as $pv): ?>
+                            <option value="<?= $pv['id_transaksi'] ?>">
+                                <?= date('d/m', strtotime($pv['tanggal'])) ?> - <?= htmlspecialchars($pv['nama_pelanggaran']) ?> (+<?= $pv['poin_saat_itu'] ?>)
+                            </option>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-xs font-bold text-slate-500 mb-3 uppercase tracking-widest">Pesan Sanggahan / Keberatan Anda: *</label>
+                <textarea name="isi_feedback" required rows="4" placeholder="Jelaskan alasan keberatan Anda di sini (misal: Anak sedang sakit, ada surat izin, dll)..." class="w-full px-5 py-4 border border-blue-100 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm font-medium text-slate-700 transition-all resize-none bg-slate-50/50"></textarea>
+            </div>
+            <button type="submit" class="w-full py-4 bg-[#000080] text-white font-extrabold rounded-2xl shadow-xl hover:bg-blue-900 transition-all flex items-center justify-center group">
+                Kirim Sanggahan
+                <svg class="w-5 h-5 ml-2 transform group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+            </button>
+            <p class="text-[10px] text-center text-slate-400 font-medium italic">Pesan Anda akan diverifikasi oleh Admin Tatib Sekolah.</p>
+        </form>
+    </div>
+</div>
+
+<script>
+    function toggleAccordion(id) {
+        const content = document.getElementById('content-' + id);
+        const icon = document.getElementById('icon-' + id);
+        
+        if (content.classList.contains('hidden')) {
+            content.classList.remove('hidden');
+            icon.classList.add('rotate-180');
+        } else {
+            content.classList.add('hidden');
+            icon.classList.remove('rotate-180');
+        }
+    }
+</script>
+
 </body>
 </html>

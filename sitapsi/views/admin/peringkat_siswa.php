@@ -53,7 +53,7 @@ if ($filter_kelas !== 'all') {
 $where_sql = implode(" AND ", $where_clauses);
 
 // FIX: Logika Join WAJIB mengikat semester yang dipilih (karena poin direset per semester)
-$join_pelanggaran = "LEFT JOIN tb_pelanggaran_header ph ON ph.id_anggota = a.id_anggota AND ph.semester = :semester";
+$join_pelanggaran = "LEFT JOIN tb_pelanggaran_header ph ON ph.id_anggota = a.id_anggota AND ph.semester = :semester AND ph.status_pelanggaran = 'Valid'";
 $param_semester = ['semester' => $filter_semester];
 $join_pelanggaran .= " LEFT JOIN tb_pelanggaran_detail pd ON pd.id_transaksi = ph.id_transaksi";
 

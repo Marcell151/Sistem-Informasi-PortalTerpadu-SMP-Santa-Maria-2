@@ -18,7 +18,7 @@ if (!$id_transaksi) die("ID Transaksi tidak valid.");
 
 // 1. Ambil data referensi dari Transaksi yang diklik (Tanggal, Waktu, Guru, Tipe)
 $sql_ref = "
-    SELECT h.tanggal, h.waktu, h.tipe_form, h.id_guru, g.nama_guru 
+    SELECT h.tanggal, h.waktu, h.tipe_form, h.id_guru, h.status_pelanggaran, g.nama_guru 
     FROM tb_pelanggaran_header h 
     JOIN tb_guru g ON h.id_guru = g.id_guru 
     WHERE h.id_transaksi = :id
@@ -46,6 +46,7 @@ $sql_group = "
     WHERE h.tanggal = :tanggal
       AND h.id_guru = :id_guru
       AND h.tipe_form = :tipe_form
+      AND h.status_pelanggaran = 'Valid'
       AND h.waktu BETWEEN :waktu_start AND :waktu_end
     GROUP BY h.id_transaksi
     ORDER BY h.waktu ASC
@@ -175,7 +176,14 @@ $btn_outline = "px-5 py-2.5 bg-white border border-[#E2E8F0] text-slate-700 text
             </div>
         </div>
 
-        <div class="kertas-kitir preview-kuning flex flex-col" id="area-kitir">
+        <div class="kertas-kitir preview-kuning flex flex-col relative" id="area-kitir">
+            <?php if ($ref['status_pelanggaran'] === 'Dibatalkan'): ?>
+            <div class="absolute inset-0 z-50 flex items-center justify-center pointer-events-none">
+                <div class="border-8 border-red-600 p-4 transform -rotate-12 opacity-80 rounded-xl">
+                    <span class="text-6xl font-black text-red-600 uppercase tracking-tighter">DIBATALKAN</span>
+                </div>
+            </div>
+            <?php endif; ?>
             
             <div class="flex items-start justify-between">
                 <img src="../assets/img/logo_sekolah.png" class="w-[50px] h-20 object-contain" onerror="this.src='https://via.placeholder.com/60x80'">
